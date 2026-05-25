@@ -7,6 +7,7 @@ const KEY = ['parcelas'];
 export interface FiltroParcelas {
   tipo?: ParcelaTipo;
   status?: ParcelaStatus;
+  descricao?: string;
   dataInicio?: string;
   dataFim?: string;
 }
@@ -22,6 +23,7 @@ export function useParcelas(filtro: FiltroParcelas = {}) {
         .limit(500);
       if (filtro.tipo) q = q.eq('tipo', filtro.tipo);
       if (filtro.status) q = q.eq('status', filtro.status);
+      if (filtro.descricao?.trim()) q = q.ilike('descricao', `%${filtro.descricao.trim()}%`);
       if (filtro.dataInicio) q = q.gte('data_vencimento', filtro.dataInicio);
       if (filtro.dataFim) q = q.lte('data_vencimento', filtro.dataFim);
       const { data, error } = await q;

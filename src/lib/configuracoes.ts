@@ -1,3 +1,4 @@
+import { supabase } from '@/lib/supabase';
 import type { FormaPagamento, LocalizacaoEstoque, VendaCanal } from '@/types/database';
 
 export type TamanhoPapelCupom = '58mm' | '80mm' | 'A4' | 'personalizado';
@@ -58,6 +59,7 @@ export interface ConfiguracoesSistema {
 
 const STORAGE_KEY = 'sistemaRoyal.configuracoes';
 const CONFIG_EVENT = 'sistemaRoyal:configuracoes';
+const CONFIG_DB_KEY = 'geral';
 
 export const CONFIGURACOES_DEFAULT: ConfiguracoesSistema = {
   loja: {
@@ -139,8 +141,42 @@ export function salvarConfiguracoes(config: ConfiguracoesSistema): void {
   window.dispatchEvent(new CustomEvent(CONFIG_EVENT, { detail: config }));
 }
 
+export async function carregarConfiguracoesSupabase(): Promise<ConfiguracoesSistema> {
+  const local = carregarConfiguracoes();
+  const { data, error } = await supabase
+    .from('configuracoes_sistema')
+    .select('valor')
+    .eq('chave', CONFIG_DB_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Nao foi possivel carregar configuracoes do Supabase. Usando cache local.', error);
+    return local;
+  }
+
+  if (!data?.valor) return local;
+
+  const config = mergeConfig(CONFIGURACOES_DEFAULT, data.valor as Partial<ConfiguracoesSistema>);
+  salvarConfiguracoes(config);
+  return config;
+}
+
+export async function salvarConfiguracoesSupabase(config: ConfiguracoesSistema): Promise<void> {
+  salvarConfiguracoes(config);
+  const { error } = await supabase
+    .from('configuracoes_sistema')
+    .upsert({ chave: CONFIG_DB_KEY, valor: config }, { onConflict: 'chave' });
+
+  if (error) throw error;
+}
+
 export function restaurarConfiguracoesPadrao(): ConfiguracoesSistema {
   salvarConfiguracoes(CONFIGURACOES_DEFAULT);
+  return CONFIGURACOES_DEFAULT;
+}
+
+export async function restaurarConfiguracoesPadraoSupabase(): Promise<ConfiguracoesSistema> {
+  await salvarConfiguracoesSupabase(CONFIGURACOES_DEFAULT);
   return CONFIGURACOES_DEFAULT;
 }
 

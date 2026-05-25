@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, FileText, MessageCircle, Minus, Plus, Printer, Trash2, X } from 'lucide-react';
+import { CheckCircle2, FileText, ImageIcon, MessageCircle, Minus, Plus, Printer, Search, Trash2, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -64,6 +64,7 @@ export default function PDV() {
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
   const [descontoGlobal, setDescontoGlobal] = useState(0);
   const [clienteId, setClienteId] = useState<string | null>(null);
+  const [clienteBusca, setClienteBusca] = useState('');
   const [canal, setCanal] = useState<VendaCanal>(configuracoes.pdv.canal_padrao);
   const [localizacao, setLocalizacao] = useState<LocalizacaoEstoque>(configuracoes.pdv.local_estoque_padrao);
   const [observacao, setObservacao] = useState('');
@@ -73,6 +74,7 @@ export default function PDV() {
   const [parcelasFiado, setParcelasFiado] = useState<number>(1);
   const [comprovante, setComprovante] = useState<ComprovanteData | null>(null);
   const [posVendaOpen, setPosVendaOpen] = useState(false);
+  const [imagemZoom, setImagemZoom] = useState<{ src: string; nome: string } | null>(null);
 
   const total_bruto = useMemo(() => itens.reduce((s, i) => s + i.quantidade * i.preco_unitario, 0), [itens]);
   const desconto_itens = useMemo(() => itens.reduce((s, i) => s + i.desconto, 0), [itens]);
@@ -82,6 +84,21 @@ export default function PDV() {
   const total_pago = pagamentos.length > 0 ? total_adicionado : valor_pagamento_unico;
   const restante = Math.max(total_liquido - total_pago, 0);
   const troco = Math.max(total_pago - total_liquido, 0);
+  const clienteSelecionado = useMemo(
+    () => clientes.data?.find((c) => c.id === clienteId) ?? null,
+    [clientes.data, clienteId],
+  );
+  const clientesFiltrados = useMemo(() => {
+    const termo = clienteBusca.trim().toLowerCase();
+    if (!termo) return (clientes.data ?? []).slice(0, 8);
+    return (clientes.data ?? [])
+      .filter((c) =>
+        [c.nome, c.telefone, c.cpf_cnpj]
+          .filter(Boolean)
+          .some((valor) => String(valor).toLowerCase().includes(termo)),
+      )
+      .slice(0, 8);
+  }, [clientes.data, clienteBusca]);
 
   function addProdutoObj(p: Produto, variacao?: VariacaoLite) {
     if (p.status !== 'ativo') {
@@ -107,6 +124,7 @@ export default function PDV() {
         {
           produto_id: p.id,
           produto_nome: nomeFinal,
+          imagem_url: p.imagem_url ?? null,
           variacao_id: variacaoId,
           quantidade: 1,
           preco_unitario: precoFinal,
@@ -216,10 +234,11 @@ export default function PDV() {
       }
     }
     try {
-      const cliente = clientes.data?.find((c) => c.id === clienteId);
+      const cliente = clienteSelecionado ?? clientes.data?.find((c) => c.id === clienteId);
       const snapshot = {
         itens: itens.map((i) => ({
           produto_nome: i.produto_nome,
+          imagem_url: i.imagem_url ?? null,
           quantidade: i.quantidade,
           preco_unitario: i.preco_unitario,
           desconto: i.desconto,
@@ -278,6 +297,7 @@ export default function PDV() {
       setDescontoGlobal(0);
       setObservacao('');
       setClienteId(null);
+      setClienteBusca('');
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -316,7 +336,7 @@ export default function PDV() {
                       <div key={p.id} className="border-b last:border-b-0">
                         <button
                           type="button"
-                          className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                           disabled={hasVar}
                           title={hasVar ? 'Selecione uma variação abaixo' : 'Adicionar'}
                           onClick={() => {
@@ -325,12 +345,21 @@ export default function PDV() {
                             setSearch('');
                           }}
                         >
-                          <span>
-                            <span className="font-medium">{p.nome}</span>
-                            {p.sku && <span className="ml-2 text-xs text-muted-foreground">{p.sku}</span>}
+                          <span className="flex min-w-0 items-center gap-3">
+                            <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                              {p.imagem_url ? (
+                                <img src={p.imagem_url} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </span>
+                            <span className="min-w-0">
+                            <span className="block truncate font-medium">{p.nome}</span>
+                            {p.sku && <span className="text-xs text-muted-foreground">{p.sku}</span>}
                             {hasVar && <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-[10px]">{p.variacoes.length} variações</span>}
+                            </span>
                           </span>
-                          <span className="font-mono text-sm">{formatCurrency(Number(p.preco_venda_padrao))}</span>
+                          <span className="shrink-0 font-mono text-sm">{formatCurrency(Number(p.preco_venda_padrao))}</span>
                         </button>
                         {hasVar && (
                           <div className="bg-muted/30">
@@ -383,13 +412,29 @@ export default function PDV() {
               ) : (
                 <div className="space-y-2">
                   {itens.map((it, idx) => (
-                    <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-2 rounded border p-2">
-                      <div className="min-w-0">
+                    <div key={idx} className="grid grid-cols-[minmax(180px,1fr)_auto_auto_auto_auto] items-center gap-2 rounded border p-2">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {it.imagem_url ? (
+                          <button
+                            type="button"
+                            className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted transition hover:border-primary hover:ring-2 hover:ring-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            title={`Ampliar imagem de ${it.produto_nome}`}
+                            onClick={() => setImagemZoom({ src: it.imagem_url!, nome: it.produto_nome })}
+                          >
+                            <img src={it.imagem_url} alt="" className="h-full w-full object-cover" />
+                          </button>
+                        ) : (
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{it.produto_nome}</div>
                         <div className="text-xs text-muted-foreground">
                           {formatCurrency(it.preco_unitario)} × {it.quantidade}
                           {it.desconto > 0 && ` − ${formatCurrency(it.desconto)}`}
                         </div>
+                      </div>
                       </div>
                       <div className="flex items-center">
                         <Button size="icon" variant="ghost" onClick={() => updateItem(idx, { quantidade: Math.max(1, it.quantidade - 1) })}>
@@ -443,6 +488,73 @@ export default function PDV() {
             <CardContent className="space-y-3">
               <div className="space-y-2">
                 <Label>Cliente</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-9 pr-9"
+                    placeholder="Digite o nome do cliente..."
+                    value={clienteBusca}
+                    onChange={(e) => {
+                      setClienteBusca(e.target.value);
+                      if (clienteId) setClienteId(null);
+                    }}
+                  />
+                  {(clienteBusca || clienteId) && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Limpar cliente"
+                      onClick={() => {
+                        setClienteBusca('');
+                        setClienteId(null);
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {clienteSelecionado ? (
+                  <div className="flex items-center justify-between rounded border bg-muted/40 p-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate font-medium">{clienteSelecionado.nome}</span>
+                    </span>
+                    {clienteSelecionado.telefone && (
+                      <span className="shrink-0 text-xs text-muted-foreground">{clienteSelecionado.telefone}</span>
+                    )}
+                  </div>
+                ) : (
+                  clienteBusca.trim() && (
+                    <div className="max-h-52 overflow-auto rounded border bg-background">
+                      {clientes.isLoading && <div className="p-2 text-sm text-muted-foreground">Buscando clientes...</div>}
+                      {!clientes.isLoading && clientesFiltrados.length === 0 && (
+                        <div className="p-2 text-sm text-muted-foreground">Nenhum cliente encontrado</div>
+                      )}
+                      {clientesFiltrados.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent"
+                          onClick={() => {
+                            setClienteId(c.id);
+                            setClienteBusca(c.nome);
+                          }}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{c.nome}</span>
+                            {(c.cpf_cnpj || c.email) && (
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {[c.cpf_cnpj, c.email].filter(Boolean).join(' - ')}
+                              </span>
+                            )}
+                          </span>
+                          {c.telefone && <span className="shrink-0 text-xs text-muted-foreground">{c.telefone}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                )}
+                <div className="hidden">
                 <Select value={clienteId ?? '__none__'} onValueChange={(v) => setClienteId(v === '__none__' ? null : v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -450,6 +562,7 @@ export default function PDV() {
                     {clientes.data?.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-2">
@@ -615,6 +728,23 @@ export default function PDV() {
               Fechar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!imagemZoom} onOpenChange={(open) => !open && setImagemZoom(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{imagemZoom?.nome}</DialogTitle>
+            <DialogDescription>Imagem do produto no carrinho</DialogDescription>
+          </DialogHeader>
+          {imagemZoom && (
+            <div className="flex max-h-[70vh] items-center justify-center overflow-hidden rounded border bg-muted">
+              <img
+                src={imagemZoom.src}
+                alt={imagemZoom.nome}
+                className="max-h-[70vh] w-full object-contain"
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

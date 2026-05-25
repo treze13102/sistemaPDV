@@ -249,10 +249,20 @@ export default function Produtos() {
               )}
               {data?.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell className="font-medium flex items-center gap-2">
-                    <Package className="h-4 w-4 text-muted-foreground" />
-                    {p.nome}
-                    {p.is_item_3d && <span className="ml-1 rounded bg-secondary px-1.5 py-0.5 text-xs">3D</span>}
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                        {p.imagem_url ? (
+                          <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" />
+                        ) : (
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{p.nome}</div>
+                        {p.is_item_3d && <span className="rounded bg-secondary px-1.5 py-0.5 text-xs">3D</span>}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell>{p.sku ?? '—'}</TableCell>
                   <TableCell>{p.categoria?.nome ?? '—'}</TableCell>

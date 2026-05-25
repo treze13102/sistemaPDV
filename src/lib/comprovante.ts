@@ -4,6 +4,7 @@ import type { Venda } from '@/types/database';
 
 export interface ComprovanteItem {
   produto_nome: string;
+  imagem_url?: string | null;
   sku?: string | null;
   quantidade: number;
   preco_unitario: number;
@@ -68,16 +69,19 @@ export function buildComprovanteHtml(
   const endereco = [config.loja.endereco, config.loja.cidade, config.loja.uf].filter(Boolean).join(' - ');
   const troco = config.cupom.exibir_troco ? Number(d.troco ?? 0) : 0;
 
-  const rows = d.itens
+  const itensHtml = d.itens
     .map(
       (it) => `
-      <tr>
-        <td>${escape(it.produto_nome)}${config.cupom.exibir_sku && it.sku ? `<div class="meta">SKU ${escape(it.sku)}</div>` : ''}</td>
-        <td class="num">${it.quantidade}</td>
-        <td class="num">${formatCurrency(it.preco_unitario)}</td>
-        ${config.cupom.exibir_desconto ? `<td class="num">${it.desconto > 0 ? '-' + formatCurrency(it.desconto) : '-'}</td>` : ''}
-        <td class="num"><strong>${formatCurrency(it.total)}</strong></td>
-      </tr>`
+      <div class="item">
+        <div class="item-body">
+          ${it.imagem_url ? `<img class="item-img" src="${escape(it.imagem_url)}" alt="" />` : ''}
+          <div class="item-info">
+            <div class="item-name">${escape(it.produto_nome)}${config.cupom.exibir_sku && it.sku ? `<div class="meta">SKU ${escape(it.sku)}</div>` : ''}</div>
+            <div class="item-line"><span>${it.quantidade} x ${formatCurrency(it.preco_unitario)}</span><strong>${formatCurrency(it.total)}</strong></div>
+            ${config.cupom.exibir_desconto && it.desconto > 0 ? `<div class="item-line muted"><span>Desconto</span><span>- ${formatCurrency(it.desconto)}</span></div>` : ''}
+          </div>
+        </div>
+      </div>`
     )
     .join('');
 
@@ -95,17 +99,26 @@ export function buildComprovanteHtml(
 <title>Comprovante #${d.venda.numero}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: ui-monospace, 'Courier New', monospace; color: #000; margin: 0; padding: 20px; font-size: ${fontePx}px; }
-  .paper { width: ${larguraMm}mm; max-width: 100%; margin: 0 auto; }
+  body { font-family: ui-monospace, 'Courier New', monospace; color: #000; margin: 0; padding: 8px; font-size: ${fontePx}px; }
+  .paper { width: ${larguraMm}mm; max-width: 100%; margin: 0 auto; overflow: hidden; }
+  .paper, .paper * { overflow-wrap: anywhere; word-break: normal; }
   .logo { display: block; max-width: 35mm; max-height: 22mm; object-fit: contain; margin: 0 auto 6px; }
   h1 { font-size: 16px; margin: 0 0 4px; text-align: center; }
   h2 { font-size: 13px; margin: 12px 0 6px; border-bottom: 1px dashed #000; padding-bottom: 2px; }
   .center { text-align: center; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  table { width: 100%; border-collapse: collapse; margin: 6px 0; }
-  th, td { padding: 3px 4px; text-align: left; border-bottom: 1px dashed #ccc; font-size: 11px; }
-  th { background: #f0f0f0; font-weight: 600; }
-  .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; align-items: flex-start; }
+  .row span:first-child { flex: 0 0 auto; }
+  .row span:last-child, .row strong:last-child { min-width: 0; text-align: right; }
+  .item { border-bottom: 1px dashed #ccc; padding: 6px 0; }
+  .item-body { display: flex; gap: 6px; align-items: flex-start; }
+  .item-img { width: 12mm; height: 12mm; object-fit: cover; border: 1px solid #ddd; flex: 0 0 auto; }
+  .item-info { min-width: 0; flex: 1; }
+  .item-name { font-weight: 600; line-height: 1.2; margin-bottom: 3px; }
+  .item-line { display: flex; justify-content: space-between; gap: 8px; line-height: 1.2; }
+  .item-line span:first-child { min-width: 0; }
+  .item-line strong, .item-line span:last-child { flex: 0 0 auto; text-align: right; white-space: nowrap; }
+  .muted { color: #444; font-size: 10px; }
   .total { font-size: 14px; padding: 8px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; margin: 8px 0; }
   .footer { margin-top: 16px; text-align: center; font-size: 10px; color: #555; white-space: pre-line; }
   .meta { font-size: 10px; color: #444; }
@@ -116,11 +129,12 @@ export function buildComprovanteHtml(
     .paper { width: ${larguraMm}mm; }
   }
   @media print and (max-width: 80mm) {
-    body { font-size: ${Math.max(fontePx - 2, 8)}px; }
+    body { font-size: ${Math.max(fontePx - 2, 8)}px; padding: ${margemMm}mm; }
     h1 { font-size: 12px; }
     h2 { font-size: 11px; }
-    th, td { font-size: 9px; padding: 2px; }
     .total { font-size: 11px; }
+    .item-line strong, .item-line span:last-child { white-space: normal; }
+    .item-img { width: 10mm; height: 10mm; }
   }
 </style>
 </head>
@@ -144,18 +158,7 @@ export function buildComprovanteHtml(
   ${config.cupom.exibir_vendedor && d.vendedor_nome ? `<div class="row"><span>Vendedor</span><span>${escape(d.vendedor_nome)}</span></div>` : ''}
 
   <h2>Itens</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Produto</th>
-        <th class="num">Qtd</th>
-        <th class="num">Preco</th>
-        ${config.cupom.exibir_desconto ? '<th class="num">Desc.</th>' : ''}
-        <th class="num">Total</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
+  <div class="items">${itensHtml}</div>
 
   <div class="row"><span>Bruto</span><span>${formatCurrency(Number(d.venda.total_bruto))}</span></div>
   ${config.cupom.exibir_desconto ? `<div class="row"><span>Desconto</span><span>- ${formatCurrency(Number(d.venda.desconto_total))}</span></div>` : ''}

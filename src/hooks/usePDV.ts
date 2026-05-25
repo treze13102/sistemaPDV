@@ -11,6 +11,7 @@ import type {
 export interface ItemCarrinho {
   produto_id: string;
   produto_nome: string;
+  imagem_url?: string | null;
   variacao_id?: string | null;
   quantidade: number;
   preco_unitario: number;

@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   Building2,
   Check,
+  ImageIcon,
   MessageCircle,
   MonitorCog,
   Printer,
@@ -22,8 +23,9 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   CONFIGURACOES_DEFAULT,
   carregarConfiguracoes,
-  restaurarConfiguracoesPadrao,
-  salvarConfiguracoes,
+  carregarConfiguracoesSupabase,
+  restaurarConfiguracoesPadraoSupabase,
+  salvarConfiguracoesSupabase,
   type ConfiguracoesSistema,
   type TamanhoPapelCupom,
 } from '@/lib/configuracoes';
@@ -89,6 +91,20 @@ function BoolField({
 export default function Configuracoes() {
   const [aba, setAba] = useState<AbaConfig>('loja');
   const [config, setConfig] = useState<ConfiguracoesSistema>(() => carregarConfiguracoes());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    carregarConfiguracoesSupabase()
+      .then((cfg) => {
+        if (active) setConfig(cfg);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const previewData = useMemo<ComprovanteData>(
     () => ({
@@ -124,15 +140,57 @@ export default function Configuracoes() {
     setConfig((atual) => updateNested(atual, secao, patch));
   }
 
-  function salvar() {
-    salvarConfiguracoes(config);
-    toast.success('Configurações salvas');
+  function handleLogoArquivo(file: File | null) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      toast.error('Use uma logo em PNG ou JPG');
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error('Logo muito grande. Use ate 1 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSecao('loja', { logo_url: String(reader.result) });
+      toast.success('Logo carregada');
+    };
+    reader.onerror = () => toast.error('Nao foi possivel ler a logo');
+    reader.readAsDataURL(file);
   }
 
-  function restaurar() {
+  async function salvarSupabase() {
+    try {
+      setSaving(true);
+      await salvarConfiguracoesSupabase(config);
+      toast.success('Configurações salvas no Supabase');
+    } catch (e) {
+      toast.error(`Não foi possível salvar no Supabase: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function restaurarSupabase() {
     if (!confirm('Restaurar configurações padrão?')) return;
-    setConfig(restaurarConfiguracoesPadrao());
-    toast.success('Configurações restauradas');
+    try {
+      setSaving(true);
+      const cfg = await restaurarConfiguracoesPadraoSupabase();
+      setConfig(cfg);
+      toast.success('Configurações restauradas no Supabase');
+    } catch (e) {
+      toast.error(`Não foi possível restaurar: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function salvar() {
+    return salvarSupabase();
+  }
+
+  async function restaurar() {
+    return restaurarSupabase();
   }
 
   return (
@@ -142,11 +200,11 @@ export default function Configuracoes() {
         description="Dados da loja, impressão de cupom, PDV e envio de comprovantes"
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" onClick={restaurar}>
+            <Button variant="outline" onClick={restaurar} disabled={saving}>
               <RotateCcw className="mr-2 h-4 w-4" />
               Restaurar
             </Button>
-            <Button onClick={salvar}>
+            <Button onClick={salvar} disabled={saving}>
               <Save className="mr-2 h-4 w-4" />
               Salvar
             </Button>
@@ -155,6 +213,11 @@ export default function Configuracoes() {
       />
 
       <div className="grid gap-4 p-6 xl:grid-cols-[1fr_360px]">
+        {loading && (
+          <div className="xl:col-span-2 rounded border bg-background px-4 py-3 text-sm text-muted-foreground">
+            Carregando configurações do Supabase...
+          </div>
+        )}
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2 rounded-md border bg-background p-2">
             {ABAS.map((item) => (
@@ -186,10 +249,40 @@ export default function Configuracoes() {
                 <div className="md:col-span-2"><Field label="Endereço"><Input value={config.loja.endereco} onChange={(e) => setSecao('loja', { endereco: e.target.value })} /></Field></div>
                 <Field label="Cidade"><Input value={config.loja.cidade} onChange={(e) => setSecao('loja', { cidade: e.target.value })} /></Field>
                 <Field label="UF"><Input maxLength={2} value={config.loja.uf} onChange={(e) => setSecao('loja', { uf: e.target.value.toUpperCase() })} /></Field>
-                <div className="md:col-span-2">
-                  <Field label="Logo URL">
-                    <Input placeholder="https://..." value={config.loja.logo_url} onChange={(e) => setSecao('loja', { logo_url: e.target.value })} />
-                  </Field>
+                <div className="md:col-span-2 space-y-3">
+                  <Label>Logo</Label>
+                  <div className="grid gap-3 sm:grid-cols-[112px_1fr]">
+                    <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded border bg-muted">
+                      {config.loja.logo_url ? (
+                        <img src={config.loja.logo_url} alt="Logo da loja" className="h-full w-full object-contain p-2" />
+                      ) : (
+                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Input placeholder="https://... ou PNG/JPG enviado" value={config.loja.logo_url} onChange={(e) => setSecao('loja', { logo_url: e.target.value })} />
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" size="sm" asChild>
+                          <label className="cursor-pointer">
+                            <ImageIcon className="mr-2 h-4 w-4" />
+                            Enviar PNG/JPG
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg"
+                              className="hidden"
+                              onChange={(e) => handleLogoArquivo(e.target.files?.[0] ?? null)}
+                            />
+                          </label>
+                        </Button>
+                        {config.loja.logo_url && (
+                          <Button type="button" variant="ghost" size="sm" onClick={() => setSecao('loja', { logo_url: '' })}>
+                            Remover logo
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Arquivos PNG ou JPG de até 1 MB. A imagem será salva nas configurações do Supabase.</p>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
