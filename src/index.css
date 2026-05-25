@@ -4,26 +4,32 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --background: 220 48% 8%;
+    --foreground: 42 36% 92%;
+    --card: 221 43% 11%;
+    --card-foreground: 42 36% 92%;
+    --popover: 221 43% 10%;
+    --popover-foreground: 42 36% 92%;
+    --primary: 40 58% 62%;
+    --primary-foreground: 220 50% 8%;
+    --secondary: 218 34% 17%;
+    --secondary-foreground: 42 36% 92%;
+    --muted: 219 31% 16%;
+    --muted-foreground: 218 19% 66%;
+    --accent: 215 32% 20%;
+    --accent-foreground: 43 55% 80%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 262 83% 58%;
+    --border: 216 28% 22%;
+    --input: 216 28% 22%;
+    --ring: 40 58% 62%;
     --radius: 0.5rem;
+    --royal-navy: #08111f;
+    --royal-panel: #0d1829;
+    --royal-panel-2: #111f33;
+    --royal-gold: #d4b46f;
+    --royal-gold-soft: #f0d99b;
+    --royal-line: rgba(212, 180, 111, 0.22);
   }
 
   .dark {
@@ -55,6 +61,17 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    background:
+      linear-gradient(135deg, rgba(212, 180, 111, 0.06) 0 1px, transparent 1px 24px),
+      radial-gradient(circle at 20% 0%, rgba(41, 77, 119, 0.38), transparent 38%),
+      linear-gradient(160deg, #060c16 0%, #0a1525 46%, #07101d 100%);
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: 0;
+  }
+
+  ::selection {
+    background: rgba(212, 180, 111, 0.35);
+    color: hsl(var(--foreground));
   }
 }

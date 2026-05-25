@@ -112,22 +112,37 @@ export default function Estoque() {
       />
       <div className="p-6 space-y-4">
         {alertas.length > 0 && (
-          <Card className="border-orange-300 bg-orange-50">
+          <Card className="border-primary/35 bg-[linear-gradient(135deg,rgba(212,180,111,0.14),rgba(127,29,29,0.16))]">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base text-orange-900">
-                <AlertTriangle className="h-4 w-4" />
-                {alertas.length} produto(s) abaixo do estoque mínimo
+              <CardTitle className="flex items-center gap-3 text-base">
+                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/30 bg-primary/10">
+                  <AlertTriangle className="h-5 w-5 text-primary" />
+                </span>
+                <span>
+                  {alertas.length} produto(s) abaixo do estoque minimo
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    Revise reposicao e transferencias para evitar ruptura no PDV.
+                  </span>
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="text-sm text-orange-900 space-y-1">
-                {alertas.slice(0, 5).map((a) => (
-                  <li key={`${a.produto_id}-${a.localizacao}`}>
-                    <strong>{a.produto.nome}</strong> — saldo {a.saldo} em {a.localizacao} (mínimo {a.produto.estoque_minimo})
-                  </li>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {alertas.slice(0, 6).map((a) => (
+                  <div key={`${a.produto_id}-${a.localizacao}`} className="rounded-md border border-[var(--royal-line)] bg-background/45 p-3 text-sm">
+                    <div className="truncate font-medium text-foreground">{a.produto.nome}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{a.localizacao}</span>
+                      <span>saldo <strong className="text-primary">{a.saldo}</strong> / minimo {a.produto.estoque_minimo}</span>
+                    </div>
+                  </div>
                 ))}
-                {alertas.length > 5 && <li className="italic">e mais {alertas.length - 5}...</li>}
-              </ul>
+                {alertas.length > 6 && (
+                  <div className="rounded-md border border-dashed border-[var(--royal-line)] bg-background/25 p-3 text-sm text-muted-foreground">
+                    mais {alertas.length - 6} produto(s) em alerta
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -176,15 +191,15 @@ export default function Estoque() {
                     </TableCell>
                     <TableCell>{l.produto.sku ?? '—'}</TableCell>
                     <TableCell>{l.localizacao}</TableCell>
-                    <TableCell className={`text-right font-mono ${baixo ? 'text-orange-600 font-bold' : ''}`}>
+                    <TableCell className={`text-right font-mono ${baixo ? 'font-bold text-primary' : ''}`}>
                       {l.saldo}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">{minimo || '—'}</TableCell>
                     <TableCell>
                       {baixo ? (
-                        <span className="text-orange-600 text-xs font-medium">⚠ Abaixo do mínimo</span>
+                        <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">Abaixo do minimo</span>
                       ) : (
-                        <span className="text-green-600 text-xs">OK</span>
+                        <span className="inline-flex items-center rounded border border-green-500/25 bg-green-500/10 px-2 py-1 text-xs text-green-400">OK</span>
                       )}
                     </TableCell>
                   </TableRow>

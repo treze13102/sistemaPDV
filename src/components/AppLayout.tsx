@@ -44,11 +44,16 @@ export function AppLayout() {
   }
 
   return (
-    <div className="flex min-h-screen bg-muted/30">
-      <aside className="hidden w-64 flex-col border-r bg-background md:flex">
-        <div className="flex h-16 items-center gap-2 border-b px-6">
-          <Boxes className="h-6 w-6 text-primary" />
-          <span className="font-semibold">sistemaRoyal</span>
+    <div className="flex min-h-screen bg-transparent">
+      <aside className="hidden w-64 flex-col border-r border-[var(--royal-line)] bg-[rgba(7,16,29,0.94)] shadow-2xl shadow-black/20 backdrop-blur md:flex">
+        <div className="flex h-16 items-center gap-3 border-b border-[var(--royal-line)] px-6">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--royal-line)] bg-primary/10">
+            <Boxes className="h-5 w-5 text-primary" />
+          </div>
+          <div className="leading-tight">
+            <span className="block font-semibold text-primary">MONT ROYAL</span>
+            <span className="block text-[10px] uppercase text-muted-foreground">sistema PDV</span>
+          </div>
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {nav.map((item) => (
@@ -59,7 +64,9 @@ export function AppLayout() {
               className={({ isActive }) =>
                 cn(
                   'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                  isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                  isActive
+                    ? 'border border-primary/30 bg-primary/15 text-primary shadow-sm shadow-primary/10'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 )
               }
             >
@@ -68,7 +75,7 @@ export function AppLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t p-3">
+        <div className="border-t border-[var(--royal-line)] p-3">
           <div className="mb-2 px-3 text-xs">
             <div className="font-medium text-foreground">{perfil?.nome ?? user?.email}</div>
             <div className="text-muted-foreground">{perfil?.perfil?.nome ?? 'Sem perfil'}</div>
