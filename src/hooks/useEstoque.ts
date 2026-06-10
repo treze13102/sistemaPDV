@@ -11,7 +11,9 @@ export interface SaldoLinha {
   variacao_id: string | null;
   localizacao: LocalizacaoEstoque;
   saldo: number;
-  produto: Pick<Produto, 'id' | 'nome' | 'sku' | 'estoque_minimo' | 'ponto_reposicao' | 'status' | 'imagem_url'>;
+  produto: Pick<Produto, 'id' | 'nome' | 'sku' | 'estoque_minimo' | 'ponto_reposicao' | 'status' | 'imagem_url' | 'custo_aquisicao' | 'preco_venda_padrao'> & {
+    categoria: { nome: string } | null;
+  };
 }
 
 export function useEstoqueSaldo() {
@@ -21,7 +23,7 @@ export function useEstoqueSaldo() {
       // join saldo + produto
       const { data: prods, error: e1 } = await supabase
         .from('produtos')
-        .select('id, nome, sku, estoque_minimo, ponto_reposicao, status, imagem_url')
+        .select('id, nome, sku, estoque_minimo, ponto_reposicao, status, imagem_url, custo_aquisicao, preco_venda_padrao, categoria:categorias(nome)')
         .order('nome');
       if (e1) throw e1;
 
@@ -29,7 +31,10 @@ export function useEstoqueSaldo() {
       if (e2) throw e2;
 
       const mapSaldo = new Map<string, SaldoLinha>();
-      for (const p of prods ?? []) {
+      for (const raw of prods ?? []) {
+        // PostgREST retorna categoria como array (to-one) — normaliza p/ objeto
+        const cat = Array.isArray(raw.categoria) ? raw.categoria[0] ?? null : raw.categoria ?? null;
+        const p = { ...raw, categoria: cat } as unknown as SaldoLinha['produto'];
         const linhas = (saldos ?? []).filter((s) => s.produto_id === p.id);
         if (linhas.length === 0) {
           mapSaldo.set(`${p.id}::Loja`, {

@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useEstoqueSaldo, useCriarMovimento } from '@/hooks/useEstoque';
 import { lookupProdutoByBarcode, useProdutos } from '@/hooks/useProdutos';
 import { BarcodeInput } from '@/components/BarcodeInput';
+import { formatCurrency } from '@/lib/utils';
 import type { LocalizacaoEstoque, MovimentoTipo } from '@/types/database';
 
 type TipoMovimentoForm = Exclude<MovimentoTipo, 'SAIDA_VENDA'>;
@@ -39,7 +39,7 @@ const schema = z.object({
 type FormInput = z.input<typeof schema>;
 type FormOutput = z.output<typeof schema>;
 
-export default function Estoque() {
+export function EstoquePanel() {
   const { data, isLoading } = useEstoqueSaldo();
   const produtos = useProdutos();
   const criar = useCriarMovimento();
@@ -101,16 +101,7 @@ export default function Estoque() {
 
   return (
     <>
-      <PageHeader
-        title="Estoque"
-        description="Saldo por produto e movimentos"
-        actions={
-          <Button onClick={() => setOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Novo movimento
-          </Button>
-        }
-      />
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         {alertas.length > 0 && (
           <Card className="border-primary/35 bg-[linear-gradient(135deg,rgba(212,180,111,0.14),rgba(127,29,29,0.16))]">
             <CardHeader className="pb-2">
@@ -147,9 +138,14 @@ export default function Estoque() {
           </Card>
         )}
 
-        <div className="flex items-center gap-2 max-w-md">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar produto..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 max-w-md flex-1">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Buscar produto..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Novo movimento
+          </Button>
         </div>
 
         <div className="rounded-lg border bg-background">
@@ -158,20 +154,26 @@ export default function Estoque() {
               <TableRow>
                 <TableHead>Produto</TableHead>
                 <TableHead>SKU</TableHead>
-                <TableHead>Local</TableHead>
-                <TableHead className="text-right">Saldo</TableHead>
-                <TableHead className="text-right">Mínimo</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead className="text-right">Custo</TableHead>
+                <TableHead className="text-right">Preço</TableHead>
+                <TableHead className="text-right">Lucro</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Qtd em estoque</TableHead>
+                <TableHead>Local</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>}
               {!isLoading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Sem dados</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Sem dados</TableCell></TableRow>
               )}
               {filtered.map((l) => {
                 const minimo = Number(l.produto.estoque_minimo ?? 0);
                 const baixo = minimo > 0 && l.saldo <= minimo;
+                const custo = Number(l.produto.custo_aquisicao ?? 0);
+                const preco = Number(l.produto.preco_venda_padrao ?? 0);
+                const lucro = preco - custo;
                 return (
                   <TableRow key={`${l.produto_id}-${l.localizacao}-${l.variacao_id ?? ''}`}>
                     <TableCell>
@@ -185,23 +187,30 @@ export default function Estoque() {
                         </div>
                         <div className="min-w-0">
                           <div className="truncate font-medium">{l.produto.nome}</div>
-                          <div className="text-xs text-muted-foreground">{l.produto.status}</div>
+                          {minimo > 0 && (
+                            <div className="text-xs text-muted-foreground">mín. {minimo}</div>
+                          )}
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>{l.produto.sku ?? '—'}</TableCell>
-                    <TableCell>{l.localizacao}</TableCell>
-                    <TableCell className={`text-right font-mono ${baixo ? 'font-bold text-primary' : ''}`}>
-                      {l.saldo}
+                    <TableCell>{l.produto.categoria?.nome ?? '—'}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(custo)}</TableCell>
+                    <TableCell className="text-right font-mono">{formatCurrency(preco)}</TableCell>
+                    <TableCell className={`text-right font-mono ${lucro >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatCurrency(lucro)}
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground">{minimo || '—'}</TableCell>
                     <TableCell>
                       {baixo ? (
-                        <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">Abaixo do minimo</span>
+                        <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">Abaixo do mínimo</span>
                       ) : (
                         <span className="inline-flex items-center rounded border border-green-500/25 bg-green-500/10 px-2 py-1 text-xs text-green-400">OK</span>
                       )}
                     </TableCell>
+                    <TableCell className={`text-right font-mono ${baixo ? 'font-bold text-primary' : ''}`}>
+                      {l.saldo}
+                    </TableCell>
+                    <TableCell>{l.localizacao}</TableCell>
                   </TableRow>
                 );
               })}
