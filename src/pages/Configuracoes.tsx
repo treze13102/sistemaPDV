@@ -212,7 +212,7 @@ export default function Configuracoes() {
         }
       />
 
-      <div className="grid gap-4 p-6 xl:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 p-4 sm:p-6 xl:grid-cols-[1fr_360px]">
         {loading && (
           <div className="xl:col-span-2 rounded border bg-background px-4 py-3 text-sm text-muted-foreground">
             Carregando configurações do Supabase...

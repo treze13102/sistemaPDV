@@ -41,7 +41,7 @@ export default function Vendas() {
   return (
     <>
       <PageHeader title="Vendas" description="Histórico de vendas e orçamentos" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <Card>
           <CardContent className="grid grid-cols-1 gap-3 pt-6 md:grid-cols-3">
             <div className="space-y-2">

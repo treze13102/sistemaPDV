@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { BottomNav } from '@/components/BottomNav';
 import { cn } from '@/lib/utils';
 
 const nav = [
@@ -125,10 +126,13 @@ export function AppLayout() {
           </Button>
         </header>
 
-        <main className="flex-1 overflow-auto safe-bottom">
+        <main className="flex-1 overflow-auto pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
           <Outlet />
         </main>
       </div>
+
+      {/* Bottom tab bar mobile */}
+      <BottomNav onMore={() => setMobileOpen(true)} />
 
       {/* Drawer mobile */}
       {mobileOpen && (

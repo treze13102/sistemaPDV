@@ -30,7 +30,7 @@ export default function Relatorios() {
   return (
     <>
       <PageHeader title="Relatórios" description="Análise de vendas e produtos" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <Card>
           <CardContent className="grid grid-cols-1 gap-3 pt-6 md:grid-cols-4">
             <div className="space-y-2">

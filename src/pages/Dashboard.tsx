@@ -50,7 +50,7 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader title="Dashboard" description="Visão geral do negócio" />
-      <div className="grid gap-4 p-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 p-4 sm:p-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Faturamento do mês</CardTitle>

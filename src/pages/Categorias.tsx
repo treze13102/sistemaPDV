@@ -97,7 +97,7 @@ export default function Categorias() {
           </Button>
         }
       />
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <div className="rounded-lg border bg-background">
           <Table>
             <TableHeader>

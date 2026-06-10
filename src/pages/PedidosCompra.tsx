@@ -94,7 +94,7 @@ export default function PedidosCompra() {
         description="Compras a fornecedores e recebimentos"
         actions={<Button onClick={() => { resetForm(); setOpenNew(true); }}><Plus className="mr-2 h-4 w-4" /> Novo pedido</Button>}
       />
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <div className="rounded-lg border bg-background">
           <Table>
             <TableHeader>

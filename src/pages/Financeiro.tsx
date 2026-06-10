@@ -242,7 +242,7 @@ export default function Financeiro() {
         description="Faturas em aberto no calendario e transacoes realizadas em lista"
         actions={<Button onClick={openNew}><Plus className="mr-2 h-4 w-4" /> Nova transacao</Button>}
       />
-      <div className="space-y-4 p-6">
+      <div className="space-y-4 p-4 sm:p-6">
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">

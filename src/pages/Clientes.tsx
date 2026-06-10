@@ -96,7 +96,7 @@ export default function Clientes() {
           </Button>
         }
       />
-      <div className="p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-4">
         <div className="flex items-center gap-2 max-w-md">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar por nome..." value={search} onChange={(e) => setSearch(e.target.value)} />
