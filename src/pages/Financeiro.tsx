@@ -507,7 +507,7 @@ export default function Financeiro() {
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar parcela' : 'Nova transacao'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-2 gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Tipo *</Label>
               <Select value={form.watch('tipo')} onValueChange={(v) => form.setValue('tipo', v as ParcelaTipo)}>

@@ -74,4 +74,28 @@
     background: rgba(212, 180, 111, 0.35);
     color: hsl(var(--foreground));
   }
+
+  /* iOS Safari faz zoom ao focar input com font-size < 16px. Forca 16px no mobile. */
+  @media (max-width: 767px) {
+    input,
+    select,
+    textarea,
+    [role='combobox'] {
+      font-size: 16px !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Respeita notch/home-indicator do iPhone (viewport-fit=cover) */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
 }

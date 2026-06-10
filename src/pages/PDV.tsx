@@ -306,7 +306,7 @@ export default function PDV() {
   return (
     <>
       <PageHeader title="PDV" description="Ponto de venda" />
-      <div className="grid gap-4 p-6 lg:grid-cols-[1fr_420px]">
+      <div className="grid gap-4 p-4 sm:p-6 lg:grid-cols-[1fr_420px]">
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -412,7 +412,7 @@ export default function PDV() {
               ) : (
                 <div className="space-y-2">
                   {itens.map((it, idx) => (
-                    <div key={idx} className="grid grid-cols-[minmax(180px,1fr)_auto_auto_auto_auto] items-center gap-2 rounded border p-2">
+                    <div key={idx} className="flex flex-col gap-2 rounded border p-2 sm:grid sm:grid-cols-[minmax(180px,1fr)_auto_auto_auto_auto] sm:items-center sm:gap-2">
                       <div className="flex min-w-0 items-center gap-3">
                         {it.imagem_url ? (
                           <button
@@ -436,6 +436,7 @@ export default function PDV() {
                         </div>
                       </div>
                       </div>
+                      <div className="flex flex-wrap items-center gap-2 sm:contents">
                       <div className="flex items-center">
                         <Button size="icon" variant="ghost" onClick={() => updateItem(idx, { quantidade: Math.max(1, it.quantidade - 1) })}>
                           <Minus className="h-3 w-3" />
@@ -473,6 +474,7 @@ export default function PDV() {
                         <Button size="icon" variant="ghost" onClick={() => removeItem(idx)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                      </div>
                       </div>
                     </div>
                   ))}

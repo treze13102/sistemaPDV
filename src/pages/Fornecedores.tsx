@@ -111,7 +111,7 @@ export default function Fornecedores() {
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar fornecedor' : 'Novo fornecedor'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-2 gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2 col-span-2">
               <Label>Razão social *</Label>
               <Input {...form.register('razao_social')} />

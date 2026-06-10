@@ -155,7 +155,7 @@ export default function PedidosCompra() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Novo pedido de compra</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Fornecedor *</Label>
                 <Select value={fornecedorId} onValueChange={setFornecedorId}>

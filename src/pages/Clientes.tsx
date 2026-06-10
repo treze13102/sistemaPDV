@@ -141,7 +141,7 @@ export default function Clientes() {
           <DialogHeader>
             <DialogTitle>{editing ? 'Editar cliente' : 'Novo cliente'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-2 gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2 col-span-2">
               <Label>Nome *</Label>
               <Input {...form.register('nome')} />
