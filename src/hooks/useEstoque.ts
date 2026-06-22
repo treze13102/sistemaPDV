@@ -13,6 +13,7 @@ export interface SaldoLinha {
   saldo: number;
   produto: Pick<Produto, 'id' | 'nome' | 'sku' | 'estoque_minimo' | 'ponto_reposicao' | 'status' | 'imagem_url' | 'custo_aquisicao' | 'preco_venda_padrao'> & {
     categoria: { nome: string } | null;
+    custo_medio_compra: number;
   };
 }
 
@@ -30,11 +31,34 @@ export function useEstoqueSaldo() {
       const { data: saldos, error: e2 } = await supabase.from('v_estoque_saldo').select('*');
       if (e2) throw e2;
 
+      const { data: compras, error: e3 } = await supabase
+        .from('movimentos_estoque')
+        .select('produto_id, quantidade, custo_unitario')
+        .eq('tipo', 'ENTRADA_COMPRA')
+        .gt('quantidade', 0)
+        .not('custo_unitario', 'is', null);
+      if (e3) throw e3;
+
+      const custos = new Map<string, { qtd: number; total: number }>();
+      for (const c of compras ?? []) {
+        const qtd = Number(c.quantidade ?? 0);
+        const custo = Number(c.custo_unitario ?? 0);
+        if (qtd <= 0 || custo <= 0) continue;
+        const atual = custos.get(c.produto_id) ?? { qtd: 0, total: 0 };
+        atual.qtd += qtd;
+        atual.total += qtd * custo;
+        custos.set(c.produto_id, atual);
+      }
+
       const mapSaldo = new Map<string, SaldoLinha>();
       for (const raw of prods ?? []) {
         // PostgREST retorna categoria como array (to-one) — normaliza p/ objeto
         const cat = Array.isArray(raw.categoria) ? raw.categoria[0] ?? null : raw.categoria ?? null;
-        const p = { ...raw, categoria: cat } as unknown as SaldoLinha['produto'];
+        const custoCompra = custos.get(raw.id);
+        const custo_medio_compra = custoCompra && custoCompra.qtd > 0
+          ? +(custoCompra.total / custoCompra.qtd).toFixed(2)
+          : Number(raw.custo_aquisicao ?? 0);
+        const p = { ...raw, categoria: cat, custo_medio_compra } as unknown as SaldoLinha['produto'];
         const linhas = (saldos ?? []).filter((s) => s.produto_id === p.id);
         if (linhas.length === 0) {
           mapSaldo.set(`${p.id}::Loja`, {

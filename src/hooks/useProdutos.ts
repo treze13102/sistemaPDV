@@ -64,7 +64,7 @@ export function useUpsertProduto() {
         const precoAnterior = Number(prev?.preco_venda_padrao ?? 0);
         const precoNovo = Number(data.preco_venda_padrao ?? precoAnterior);
 
-        const { error } = await supabase.from('produtos').update(data).eq('id', data.id);
+        const { data: atualizado, error } = await supabase.from('produtos').update(data).eq('id', data.id).select('*').single();
         if (error) throw error;
 
         if (precoNovo !== precoAnterior && precoAnterior > 0) {
@@ -78,9 +78,11 @@ export function useUpsertProduto() {
             usuario_id: usuarioId,
           });
         }
+        return atualizado as Produto;
       } else {
-        const { error } = await supabase.from('produtos').insert(data);
+        const { data: criado, error } = await supabase.from('produtos').insert(data).select('*').single();
         if (error) throw error;
+        return criado as Produto;
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),

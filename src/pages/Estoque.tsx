@@ -12,10 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useEstoqueSaldo, useCriarMovimento } from '@/hooks/useEstoque';
-import { lookupProdutoByBarcode, useProdutos } from '@/hooks/useProdutos';
+import { useEstoqueSaldo, useCriarMovimento, useMovimentosEstoque, type SaldoLinha } from '@/hooks/useEstoque';
+import { lookupProdutoByBarcode, useHistoricoPreco, useProdutos, useUpsertProduto } from '@/hooks/useProdutos';
 import { BarcodeInput } from '@/components/BarcodeInput';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import type { LocalizacaoEstoque, MovimentoTipo } from '@/types/database';
 
 type TipoMovimentoForm = Exclude<MovimentoTipo, 'SAIDA_VENDA'>;
@@ -42,9 +42,16 @@ type FormOutput = z.output<typeof schema>;
 export function EstoquePanel() {
   const { data, isLoading } = useEstoqueSaldo();
   const produtos = useProdutos();
+  const criarProduto = useUpsertProduto();
   const criar = useCriarMovimento();
   const [search, setSearch] = useState('');
+  const [produtoSearch, setProdutoSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [novoProdutoOpen, setNovoProdutoOpen] = useState(false);
+  const [novoProduto, setNovoProduto] = useState({ nome: '', sku: '', custo: 0, preco: 0 });
+  const [produtoDetalhe, setProdutoDetalhe] = useState<SaldoLinha | null>(null);
+  const movimentosProduto = useMovimentosEstoque(produtoDetalhe?.produto_id);
+  const historicoPreco = useHistoricoPreco(produtoDetalhe?.produto_id ?? null);
 
   const form = useForm<FormInput, unknown, FormOutput>({
     resolver: zodResolver(schema),
@@ -66,6 +73,19 @@ export function EstoquePanel() {
       (l) => l.produto.nome.toLowerCase().includes(s) || (l.produto.sku ?? '').toLowerCase().includes(s)
     );
   }, [data, search]);
+
+  const produtosMovimento = useMemo(() => {
+    const lista = produtos.data ?? [];
+    const termo = produtoSearch.trim().toLowerCase();
+    if (!termo) return lista.slice(0, 25);
+    return lista
+      .filter((p) =>
+        [p.nome, p.sku, p.codigo_barras]
+          .filter(Boolean)
+          .some((valor) => String(valor).toLowerCase().includes(termo)),
+      )
+      .slice(0, 25);
+  }, [produtos.data, produtoSearch]);
 
   const alertas = useMemo(() => {
     return (data ?? []).filter((l) => {
@@ -94,6 +114,30 @@ export function EstoquePanel() {
       toast.success('Movimento registrado');
       setOpen(false);
       form.reset();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function criarNovoProdutoRapido() {
+    const nome = novoProduto.nome.trim();
+    if (!nome) {
+      toast.error('Informe o nome do produto');
+      return;
+    }
+    try {
+      const criado = await criarProduto.mutateAsync({
+        nome,
+        sku: novoProduto.sku.trim() || null,
+        custo_aquisicao: novoProduto.custo || 0,
+        preco_venda_padrao: novoProduto.preco || 0,
+        status: 'ativo',
+      });
+      form.setValue('produto_id', criado.id, { shouldDirty: true, shouldValidate: true });
+      setProdutoSearch(criado.nome);
+      setNovoProduto({ nome: '', sku: '', custo: 0, preco: 0 });
+      setNovoProdutoOpen(false);
+      toast.success('Produto cadastrado e selecionado');
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -155,7 +199,7 @@ export function EstoquePanel() {
                 <TableHead>Produto</TableHead>
                 <TableHead>SKU</TableHead>
                 <TableHead>Categoria</TableHead>
-                <TableHead className="text-right">Custo</TableHead>
+                <TableHead className="text-right">Custo medio</TableHead>
                 <TableHead className="text-right">Preço</TableHead>
                 <TableHead className="text-right">Lucro</TableHead>
                 <TableHead>Status</TableHead>
@@ -171,11 +215,15 @@ export function EstoquePanel() {
               {filtered.map((l) => {
                 const minimo = Number(l.produto.estoque_minimo ?? 0);
                 const baixo = minimo > 0 && l.saldo <= minimo;
-                const custo = Number(l.produto.custo_aquisicao ?? 0);
+                const custo = Number(l.produto.custo_medio_compra ?? l.produto.custo_aquisicao ?? 0);
                 const preco = Number(l.produto.preco_venda_padrao ?? 0);
                 const lucro = preco - custo;
                 return (
-                  <TableRow key={`${l.produto_id}-${l.localizacao}-${l.variacao_id ?? ''}`}>
+                  <TableRow
+                    key={`${l.produto_id}-${l.localizacao}-${l.variacao_id ?? ''}`}
+                    className="cursor-pointer"
+                    onClick={() => setProdutoDetalhe(l)}
+                  >
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
@@ -219,6 +267,184 @@ export function EstoquePanel() {
         </div>
       </div>
 
+      <Dialog open={!!produtoDetalhe} onOpenChange={(open) => !open && setProdutoDetalhe(null)}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Registros do produto</DialogTitle>
+          </DialogHeader>
+          {produtoDetalhe && (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-4 rounded-lg border border-[var(--royal-line)] bg-background/45 p-4 md:flex-row md:items-center">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[var(--royal-line)] bg-muted">
+                  {produtoDetalhe.produto.imagem_url ? (
+                    <img src={produtoDetalhe.produto.imagem_url} alt={produtoDetalhe.produto.nome} className="h-full w-full object-cover" />
+                  ) : (
+                    <ImageIcon className="h-7 w-7 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-lg font-semibold text-primary">{produtoDetalhe.produto.nome}</div>
+                  <div className="text-sm text-muted-foreground">
+                    SKU {produtoDetalhe.produto.sku ?? '-'} · {produtoDetalhe.produto.categoria?.nome ?? 'Sem categoria'} · {produtoDetalhe.localizacao}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+                  <div className="rounded-md border border-[var(--royal-line)] bg-background/40 p-3">
+                    <div className="text-xs text-muted-foreground">Custo medio</div>
+                    <div className="font-mono font-semibold">{formatCurrency(Number(produtoDetalhe.produto.custo_medio_compra ?? produtoDetalhe.produto.custo_aquisicao ?? 0))}</div>
+                  </div>
+                  <div className="rounded-md border border-[var(--royal-line)] bg-background/40 p-3">
+                    <div className="text-xs text-muted-foreground">Preco venda</div>
+                    <div className="font-mono font-semibold text-primary">{formatCurrency(Number(produtoDetalhe.produto.preco_venda_padrao ?? 0))}</div>
+                  </div>
+                  <div className="rounded-md border border-[var(--royal-line)] bg-background/40 p-3">
+                    <div className="text-xs text-muted-foreground">Lucro unit.</div>
+                    <div className="font-mono font-semibold text-green-400">
+                      {formatCurrency(Number(produtoDetalhe.produto.preco_venda_padrao ?? 0) - Number(produtoDetalhe.produto.custo_medio_compra ?? produtoDetalhe.produto.custo_aquisicao ?? 0))}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-[var(--royal-line)] bg-background/40 p-3">
+                    <div className="text-xs text-muted-foreground">Saldo local</div>
+                    <div className="font-mono font-semibold">{produtoDetalhe.saldo}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Registros de estoque</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Tipo</TableHead>
+                          <TableHead className="text-right">Qtd</TableHead>
+                          <TableHead className="text-right">Custo</TableHead>
+                          <TableHead>Local</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {movimentosProduto.isLoading && (
+                          <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                        )}
+                        {!movimentosProduto.isLoading && (movimentosProduto.data?.length ?? 0) === 0 && (
+                          <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Sem registros</TableCell></TableRow>
+                        )}
+                        {movimentosProduto.data?.map((m) => (
+                          <TableRow key={m.id}>
+                            <TableCell>{formatDate(m.data_hora)}</TableCell>
+                            <TableCell>{m.tipo}</TableCell>
+                            <TableCell className="text-right font-mono">{m.quantidade}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              {m.custo_unitario == null ? '-' : formatCurrency(Number(m.custo_unitario))}
+                            </TableCell>
+                            <TableCell>{m.localizacao}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Historico de precos</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead className="text-right">Anterior</TableHead>
+                          <TableHead className="text-right">Novo</TableHead>
+                          <TableHead className="text-right">Variacao</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {historicoPreco.isLoading && (
+                          <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                        )}
+                        {!historicoPreco.isLoading && (historicoPreco.data?.length ?? 0) === 0 && (
+                          <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Sem alteracoes de preco</TableCell></TableRow>
+                        )}
+                        {historicoPreco.data?.map((h) => (
+                          <TableRow key={h.id}>
+                            <TableCell>{formatDate(h.created_at)}</TableCell>
+                            <TableCell className="text-right font-mono">{formatCurrency(Number(h.preco_anterior))}</TableCell>
+                            <TableCell className="text-right font-mono text-primary">{formatCurrency(Number(h.preco_novo))}</TableCell>
+                            <TableCell className={`text-right font-mono ${Number(h.variacao_pct) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {Number(h.variacao_pct).toFixed(2)}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={novoProdutoOpen} onOpenChange={setNovoProdutoOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Cadastrar produto rapido</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Nome *</Label>
+              <Input
+                value={novoProduto.nome}
+                onChange={(e) => setNovoProduto((p) => ({ ...p, nome: e.target.value }))}
+                placeholder="Nome do produto"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>SKU</Label>
+              <BarcodeInput
+                value={novoProduto.sku}
+                onChange={(sku) => setNovoProduto((p) => ({ ...p, sku }))}
+                onScan={(sku) => {
+                  setNovoProduto((p) => ({ ...p, sku }));
+                  toast.success(`Codigo vinculado ao SKU: ${sku}`);
+                }}
+                placeholder="Digite ou escaneie o codigo"
+                clearOnScan={false}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Custo inicial</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={novoProduto.custo}
+                onChange={(e) => setNovoProduto((p) => ({ ...p, custo: Number(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Preco de venda</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={novoProduto.preco}
+                onChange={(e) => setNovoProduto((p) => ({ ...p, preco: Number(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setNovoProdutoOpen(false)}>Cancelar</Button>
+            <Button type="button" onClick={criarNovoProdutoRapido} disabled={criarProduto.isPending}>
+              Cadastrar e selecionar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -227,31 +453,56 @@ export function EstoquePanel() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2 col-span-2">
               <Label>Produto *</Label>
-              <BarcodeInput
-                placeholder="Escaneie código de barras ou SKU para selecionar"
-                onScan={async (code) => {
-                  try {
-                    const p = await lookupProdutoByBarcode(code);
-                    if (p) {
-                      form.setValue('produto_id', p.id);
-                      toast.success(`Selecionado: ${p.nome}`);
-                    } else {
-                      toast.error(`Sem produto para "${code}"`);
-                    }
-                  } catch (e) { toast.error((e as Error).message); }
-                }}
-                clearOnScan
-              />
-              <Select value={form.watch('produto_id')} onValueChange={(v) => form.setValue('produto_id', v)}>
-                <SelectTrigger><SelectValue placeholder="Ou selecione na lista..." /></SelectTrigger>
-                <SelectContent>
-                  {produtos.data?.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nome}{p.sku ? ` (${p.sku})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="overflow-hidden rounded-md border border-[var(--royal-line)] bg-background/45">
+                <div className="grid sm:grid-cols-[1fr_auto]">
+                  <BarcodeInput
+                    containerClassName="border-b border-[var(--royal-line)] sm:border-b-0 sm:border-r"
+                    className="rounded-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+                    placeholder="Digite nome, SKU ou escaneie o codigo..."
+                    value={produtoSearch}
+                    onChange={setProdutoSearch}
+                    onScan={async (code) => {
+                      setProdutoSearch(code);
+                      try {
+                        const p = await lookupProdutoByBarcode(code);
+                        if (p) {
+                          form.setValue('produto_id', p.id, { shouldDirty: true, shouldValidate: true });
+                          setProdutoSearch(p.nome);
+                          toast.success(`Selecionado: ${p.nome}`);
+                        } else {
+                          toast.error(`Sem produto para "${code}"`);
+                        }
+                      } catch (e) { toast.error((e as Error).message); }
+                    }}
+                    clearOnScan={false}
+                  />
+                  <Button type="button" variant="ghost" className="h-10 rounded-none px-5" onClick={() => setNovoProdutoOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Novo produto
+                  </Button>
+                </div>
+                <Select
+                  value={form.watch('produto_id')}
+                  onValueChange={(v) => {
+                    form.setValue('produto_id', v, { shouldDirty: true, shouldValidate: true });
+                    const selecionado = produtos.data?.find((p) => p.id === v);
+                    if (selecionado) setProdutoSearch(selecionado.nome);
+                  }}
+                >
+                  <SelectTrigger className="rounded-none border-0 border-t border-[var(--royal-line)] bg-transparent focus:ring-0 focus:ring-offset-0">
+                    <SelectValue placeholder="Selecione um produto filtrado..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {produtosMovimento.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">Nenhum produto encontrado</div>
+                    )}
+                    {produtosMovimento.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}{p.sku ? ` (${p.sku})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {form.formState.errors.produto_id && <p className="text-sm text-destructive">{form.formState.errors.produto_id.message}</p>}
             </div>
 
