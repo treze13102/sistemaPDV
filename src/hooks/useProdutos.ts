@@ -85,7 +85,10 @@ export function useUpsertProduto() {
         return criado as Produto;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ['estoque'] });
+    },
   });
 }
 
@@ -173,6 +176,9 @@ export function useDeleteProduto() {
       const { error } = await supabase.from('produtos').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ['estoque'] });
+    },
   });
 }

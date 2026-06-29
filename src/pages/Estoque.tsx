@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, AlertTriangle, Search, ImageIcon } from 'lucide-react';
+import { Plus, AlertTriangle, Search, ImageIcon, Pencil, Copy, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,10 +13,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useEstoqueSaldo, useCriarMovimento, useMovimentosEstoque, type SaldoLinha } from '@/hooks/useEstoque';
-import { lookupProdutoByBarcode, useHistoricoPreco, useProdutos, useUpsertProduto } from '@/hooks/useProdutos';
+import { lookupProdutoByBarcode, useDeleteProduto, useHistoricoPreco, useProdutos, useUpsertProduto } from '@/hooks/useProdutos';
+import { useCategorias } from '@/hooks/useCategorias';
 import { BarcodeInput } from '@/components/BarcodeInput';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import type { LocalizacaoEstoque, MovimentoTipo } from '@/types/database';
+import type { LocalizacaoEstoque, MovimentoTipo, Produto, ProdutoStatus } from '@/types/database';
 
 type TipoMovimentoForm = Exclude<MovimentoTipo, 'SAIDA_VENDA'>;
 
@@ -42,7 +43,9 @@ type FormOutput = z.output<typeof schema>;
 export function EstoquePanel() {
   const { data, isLoading } = useEstoqueSaldo();
   const produtos = useProdutos();
+  const categorias = useCategorias();
   const criarProduto = useUpsertProduto();
+  const deletarProduto = useDeleteProduto();
   const criar = useCriarMovimento();
   const [search, setSearch] = useState('');
   const [produtoSearch, setProdutoSearch] = useState('');
@@ -50,6 +53,18 @@ export function EstoquePanel() {
   const [novoProdutoOpen, setNovoProdutoOpen] = useState(false);
   const [novoProduto, setNovoProduto] = useState({ nome: '', sku: '', custo: 0, preco: 0 });
   const [produtoDetalhe, setProdutoDetalhe] = useState<SaldoLinha | null>(null);
+  const [editProduto, setEditProduto] = useState<Produto | null>(null);
+  const [excluirProduto, setExcluirProduto] = useState<Produto | null>(null);
+  const [editForm, setEditForm] = useState({
+    nome: '',
+    sku: '',
+    codigo_barras: '',
+    categoria_id: '',
+    custo_aquisicao: 0,
+    preco_venda_padrao: 0,
+    estoque_minimo: 0,
+    status: 'ativo' as ProdutoStatus,
+  });
   const movimentosProduto = useMovimentosEstoque(produtoDetalhe?.produto_id);
   const historicoPreco = useHistoricoPreco(produtoDetalhe?.produto_id ?? null);
 
@@ -143,6 +158,110 @@ export function EstoquePanel() {
     }
   }
 
+  function abrirEdicao(produtoId: string) {
+    const full = produtos.data?.find((p) => p.id === produtoId);
+    if (!full) {
+      toast.error('Produto nao encontrado. Aguarde o carregamento.');
+      return;
+    }
+    setEditForm({
+      nome: full.nome ?? '',
+      sku: full.sku ?? '',
+      codigo_barras: full.codigo_barras ?? '',
+      categoria_id: full.categoria_id ?? '',
+      custo_aquisicao: Number(full.custo_aquisicao ?? 0),
+      preco_venda_padrao: Number(full.preco_venda_padrao ?? 0),
+      estoque_minimo: Number(full.estoque_minimo ?? 0),
+      status: full.status ?? 'ativo',
+    });
+    setEditProduto(full);
+  }
+
+  async function salvarEdicao() {
+    if (!editProduto) return;
+    const nome = editForm.nome.trim();
+    if (!nome) {
+      toast.error('Informe o nome do produto');
+      return;
+    }
+    try {
+      await criarProduto.mutateAsync({
+        id: editProduto.id,
+        nome,
+        sku: editForm.sku.trim() || null,
+        codigo_barras: editForm.codigo_barras.trim() || null,
+        categoria_id: editForm.categoria_id || null,
+        custo_aquisicao: editForm.custo_aquisicao || 0,
+        preco_venda_padrao: editForm.preco_venda_padrao || 0,
+        estoque_minimo: editForm.estoque_minimo || 0,
+        status: editForm.status,
+      });
+      toast.success('Produto atualizado');
+      setEditProduto(null);
+      setProdutoDetalhe(null);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function clonarProduto(produtoId: string) {
+    const full = produtos.data?.find((p) => p.id === produtoId);
+    if (!full) {
+      toast.error('Produto nao encontrado. Aguarde o carregamento.');
+      return;
+    }
+    try {
+      const novo = await criarProduto.mutateAsync({
+        nome: `${full.nome} (cópia)`,
+        // SKU e código de barras são únicos — não copiar
+        categoria_id: full.categoria_id ?? null,
+        descricao_curta: full.descricao_curta ?? null,
+        descricao_detalhada: full.descricao_detalhada ?? null,
+        unidade_medida: full.unidade_medida,
+        fornecedor_principal_id: full.fornecedor_principal_id ?? null,
+        custo_aquisicao: Number(full.custo_aquisicao ?? 0),
+        preco_venda_padrao: Number(full.preco_venda_padrao ?? 0),
+        margem_desejada_percentual: full.margem_desejada_percentual ?? null,
+        estoque_minimo: full.estoque_minimo ?? null,
+        estoque_maximo: full.estoque_maximo ?? null,
+        ponto_reposicao: full.ponto_reposicao ?? null,
+        status: full.status,
+        canal_loja_fisica: full.canal_loja_fisica,
+        canal_ecommerce: full.canal_ecommerce,
+        canal_marketplace_x: full.canal_marketplace_x,
+        canal_marketplace_y: full.canal_marketplace_y,
+        is_item_3d: full.is_item_3d,
+        imagem_url: full.imagem_url ?? null,
+      });
+      toast.success('Produto clonado. Abrindo para edição...');
+      setEditForm({
+        nome: novo.nome ?? '',
+        sku: novo.sku ?? '',
+        codigo_barras: novo.codigo_barras ?? '',
+        categoria_id: novo.categoria_id ?? '',
+        custo_aquisicao: Number(novo.custo_aquisicao ?? 0),
+        preco_venda_padrao: Number(novo.preco_venda_padrao ?? 0),
+        estoque_minimo: Number(novo.estoque_minimo ?? 0),
+        status: novo.status ?? 'ativo',
+      });
+      setEditProduto(novo);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function confirmarExclusao() {
+    if (!excluirProduto) return;
+    try {
+      await deletarProduto.mutateAsync(excluirProduto.id);
+      toast.success('Produto excluído');
+      setExcluirProduto(null);
+      setProdutoDetalhe(null);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   return (
     <>
       <div className="space-y-4">
@@ -205,12 +324,13 @@ export function EstoquePanel() {
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Qtd em estoque</TableHead>
                 <TableHead>Local</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>}
+              {isLoading && <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>}
               {!isLoading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Sem dados</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground">Sem dados</TableCell></TableRow>
               )}
               {filtered.map((l) => {
                 const minimo = Number(l.produto.estoque_minimo ?? 0);
@@ -259,6 +379,51 @@ export function EstoquePanel() {
                       {l.saldo}
                     </TableCell>
                     <TableCell>{l.localizacao}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Editar"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            abrirEdicao(l.produto_id);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          <span className="sr-only">Editar produto</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="Clonar"
+                          disabled={criarProduto.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clonarProduto(l.produto_id);
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                          <span className="sr-only">Clonar produto</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          title="Excluir"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const full = produtos.data?.find((p) => p.id === l.produto_id);
+                            if (full) setExcluirProduto(full);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Excluir produto</span>
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -270,7 +435,35 @@ export function EstoquePanel() {
       <Dialog open={!!produtoDetalhe} onOpenChange={(open) => !open && setProdutoDetalhe(null)}>
         <DialogContent className="max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Registros do produto</DialogTitle>
+            <div className="flex items-center justify-between gap-3 pr-6">
+              <DialogTitle>Registros do produto</DialogTitle>
+              {produtoDetalhe && (
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => abrirEdicao(produtoDetalhe.produto_id)}>
+                    <Pencil className="mr-2 h-4 w-4" /> Editar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={criarProduto.isPending}
+                    onClick={() => clonarProduto(produtoDetalhe.produto_id)}
+                  >
+                    <Copy className="mr-2 h-4 w-4" /> Clonar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      const full = produtos.data?.find((p) => p.id === produtoDetalhe.produto_id);
+                      if (full) setExcluirProduto(full);
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                  </Button>
+                </div>
+              )}
+            </div>
           </DialogHeader>
           {produtoDetalhe && (
             <div className="space-y-4">
@@ -440,6 +633,128 @@ export function EstoquePanel() {
             <Button type="button" variant="outline" onClick={() => setNovoProdutoOpen(false)}>Cancelar</Button>
             <Button type="button" onClick={criarNovoProdutoRapido} disabled={criarProduto.isPending}>
               Cadastrar e selecionar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!excluirProduto} onOpenChange={(o) => !o && setExcluirProduto(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir produto</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir <strong className="text-foreground">{excluirProduto?.nome}</strong>?
+            Esta ação não pode ser desfeita e pode falhar se houver movimentos ou vendas vinculados.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setExcluirProduto(null)}>Cancelar</Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmarExclusao}
+              disabled={deletarProduto.isPending}
+            >
+              Excluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editProduto} onOpenChange={(o) => !o && setEditProduto(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar produto</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Nome *</Label>
+              <Input
+                value={editForm.nome}
+                onChange={(e) => setEditForm((p) => ({ ...p, nome: e.target.value }))}
+                placeholder="Nome do produto"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>SKU</Label>
+              <BarcodeInput
+                value={editForm.sku}
+                onChange={(sku) => setEditForm((p) => ({ ...p, sku }))}
+                onScan={(sku) => setEditForm((p) => ({ ...p, sku }))}
+                placeholder="Digite ou escaneie"
+                clearOnScan={false}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Código de barras</Label>
+              <BarcodeInput
+                value={editForm.codigo_barras}
+                onChange={(codigo_barras) => setEditForm((p) => ({ ...p, codigo_barras }))}
+                onScan={(codigo_barras) => setEditForm((p) => ({ ...p, codigo_barras }))}
+                placeholder="Digite ou escaneie"
+                clearOnScan={false}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Categoria</Label>
+              <Select
+                value={editForm.categoria_id || 'none'}
+                onValueChange={(v) => setEditForm((p) => ({ ...p, categoria_id: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Sem categoria" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem categoria</SelectItem>
+                  {(categorias.data ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editForm.status}
+                onValueChange={(v) => setEditForm((p) => ({ ...p, status: v as ProdutoStatus }))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativo">Ativo</SelectItem>
+                  <SelectItem value="inativo">Inativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Custo de aquisição</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editForm.custo_aquisicao}
+                onChange={(e) => setEditForm((p) => ({ ...p, custo_aquisicao: Number(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Preço de venda</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editForm.preco_venda_padrao}
+                onChange={(e) => setEditForm((p) => ({ ...p, preco_venda_padrao: Number(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Estoque mínimo</Label>
+              <Input
+                type="number"
+                step="1"
+                value={editForm.estoque_minimo}
+                onChange={(e) => setEditForm((p) => ({ ...p, estoque_minimo: Number(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditProduto(null)}>Cancelar</Button>
+            <Button type="button" onClick={salvarEdicao} disabled={criarProduto.isPending}>
+              Salvar alterações
             </Button>
           </DialogFooter>
         </DialogContent>
