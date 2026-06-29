@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { FormaPagamento, LocalizacaoEstoque, VendaCanal } from '@/types/database';
 
 export type TamanhoPapelCupom = '58mm' | '80mm' | 'A4' | 'personalizado';
+export type ModoImpressao = 'grafico' | 'termica_texto';
 
 export interface ConfiguracoesSistema {
   loja: {
@@ -34,12 +35,15 @@ export interface ConfiguracoesSistema {
     exibir_troco: boolean;
   };
   impressao: {
+    modo: ModoImpressao;
     tamanho_papel: TamanhoPapelCupom;
     largura_personalizada_mm: number;
+    colunas_texto: number;
     margem_mm: number;
     fonte_px: number;
     copias: number;
     auto_abrir_impressao: boolean;
+    impressao_silenciosa: boolean;
     abrir_pdf_em_a4: boolean;
   };
   pdv: {
@@ -92,12 +96,15 @@ export const CONFIGURACOES_DEFAULT: ConfiguracoesSistema = {
     exibir_troco: true,
   },
   impressao: {
+    modo: 'termica_texto',
     tamanho_papel: '58mm',
     largura_personalizada_mm: 58,
+    colunas_texto: 0,
     margem_mm: 2,
     fonte_px: 12,
     copias: 1,
     auto_abrir_impressao: true,
+    impressao_silenciosa: false,
     abrir_pdf_em_a4: true,
   },
   pdv: {

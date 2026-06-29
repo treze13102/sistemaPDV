@@ -27,6 +27,7 @@ import {
   restaurarConfiguracoesPadraoSupabase,
   salvarConfiguracoesSupabase,
   type ConfiguracoesSistema,
+  type ModoImpressao,
   type TamanhoPapelCupom,
 } from '@/lib/configuracoes';
 import { buildComprovanteHtml, type ComprovanteData } from '@/lib/comprovante';
@@ -315,6 +316,19 @@ export default function Configuracoes() {
             <Card>
               <CardHeader><CardTitle>Impressão</CardTitle></CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
+                <Field label="Modo de impressão">
+                  <Select value={config.impressao.modo} onValueChange={(v) => setSecao('impressao', { modo: v as ModoImpressao })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="termica_texto">Térmica/fiscal — texto (linha a linha)</SelectItem>
+                      <SelectItem value="grafico">Gráfico — com logo e imagens</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Térmica/fiscal imprime texto puro (sem imagem) — saída limpa em bobina. Use Gráfico só para
+                    impressora comum/PDF.
+                  </p>
+                </Field>
                 <Field label="Tamanho do papel">
                   <Select value={config.impressao.tamanho_papel} onValueChange={(v) => setSecao('impressao', { tamanho_papel: v as TamanhoPapelCupom })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -327,6 +341,12 @@ export default function Configuracoes() {
                   </Select>
                 </Field>
                 <Field label="Largura personalizada (mm)"><Input type="number" value={config.impressao.largura_personalizada_mm} onChange={(e) => setSecao('impressao', { largura_personalizada_mm: Number(e.target.value) || 58 })} /></Field>
+                {config.impressao.modo === 'termica_texto' && (
+                  <Field label="Colunas de texto (0 = automático)">
+                    <Input type="number" min={0} max={64} value={config.impressao.colunas_texto} onChange={(e) => setSecao('impressao', { colunas_texto: Number(e.target.value) || 0 })} />
+                    <p className="text-xs text-muted-foreground">58mm ≈ 32 colunas · 80mm ≈ 48 colunas. Ajuste se o texto cortar ou sobrar.</p>
+                  </Field>
+                )}
                 <Field label="Margem (mm)"><Input type="number" value={config.impressao.margem_mm} onChange={(e) => setSecao('impressao', { margem_mm: Number(e.target.value) || 0 })} /></Field>
                 <Field label="Fonte do cupom (px)"><Input type="number" value={config.impressao.fonte_px} onChange={(e) => setSecao('impressao', { fonte_px: Number(e.target.value) || 12 })} /></Field>
                 <Field label="Cópias"><Input type="number" min={1} max={5} value={config.impressao.copias} onChange={(e) => setSecao('impressao', { copias: Number(e.target.value) || 1 })} /></Field>
@@ -334,6 +354,26 @@ export default function Configuracoes() {
                   <BoolField label="Abrir impressão automaticamente" checked={config.impressao.auto_abrir_impressao} onChange={(v) => setSecao('impressao', { auto_abrir_impressao: v })} />
                   <BoolField label="Gerar PDF em formato A4" checked={config.impressao.abrir_pdf_em_a4} onChange={(v) => setSecao('impressao', { abrir_pdf_em_a4: v })} />
                 </div>
+
+                <div className="md:col-span-2 space-y-3 rounded-md border border-[var(--royal-line)] bg-background/40 p-4">
+                  <BoolField
+                    label="Impressão silenciosa (sem pop-up) — modo kiosk"
+                    checked={config.impressao.impressao_silenciosa}
+                    onChange={(v) => setSecao('impressao', { impressao_silenciosa: v })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Imprime direto na <strong>impressora padrão do Windows</strong> sem abrir janela. Para pular
+                    também o diálogo de impressão, inicie o Chrome com a flag <code className="rounded bg-muted px-1">--kiosk-printing</code>:
+                  </p>
+                  <pre className="overflow-x-auto rounded bg-muted px-3 py-2 text-xs">
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing --app=https://SEU-SITE.vercel.app
+                  </pre>
+                  <p className="text-xs text-muted-foreground">
+                    Defina a impressora térmica como <strong>padrão</strong> no Windows. Dica: crie um atalho na área
+                    de trabalho com essa linha para o caixa abrir o sistema já em modo de impressão direta.
+                  </p>
+                </div>
+
               </CardContent>
             </Card>
           )}
