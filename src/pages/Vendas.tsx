@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, X, Printer } from 'lucide-react';
+import { Eye, Pencil, X, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
@@ -11,12 +11,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCancelarVenda, useItensVenda, useVendas, type FiltroVendas, type VendaListagem } from '@/hooks/useVendas';
+import { useParcelasDaVenda } from '@/hooks/useFluxoCaixa';
+import { EditarVendaDialog } from '@/components/EditarVendaDialog';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { imprimirComprovante } from '@/lib/comprovante';
-import type { VendaStatus } from '@/types/database';
+import { BANDEIRAS, FORMA_LABEL } from '@/lib/recebiveis';
+import type { ParcelaStatus, VendaStatus } from '@/types/database';
 
 const STATUS_LABEL: Record<VendaStatus, string> = {
   CONCLUIDA: 'Concluída', CANCELADA: 'Cancelada', ORCAMENTO: 'Orçamento',
+};
+
+const PARCELA_STATUS_CLASS: Record<ParcelaStatus, string> = {
+  ABERTA: 'text-blue-400',
+  PARCIAL: 'text-amber-400',
+  PAGA: 'text-green-400',
+  ATRASADA: 'text-destructive',
+  CANCELADA: 'text-muted-foreground line-through',
 };
 
 export default function Vendas() {
@@ -24,6 +35,7 @@ export default function Vendas() {
   const { data, isLoading } = useVendas(filtro);
   const cancelar = useCancelarVenda();
   const [verVenda, setVerVenda] = useState<VendaListagem | null>(null);
+  const [editarVenda, setEditarVenda] = useState<VendaListagem | null>(null);
   const [cancelarTarget, setCancelarTarget] = useState<VendaListagem | null>(null);
   const [motivo, setMotivo] = useState('');
 
@@ -111,9 +123,14 @@ export default function Vendas() {
                       <Eye className="h-4 w-4" />
                     </Button>
                     {(v.status === 'CONCLUIDA' || v.status === 'ORCAMENTO') && (
-                      <Button size="icon" variant="ghost" title="Cancelar" onClick={() => { setCancelarTarget(v); setMotivo(''); }}>
-                        <X className="h-4 w-4" />
-                      </Button>
+                      <>
+                        <Button size="icon" variant="ghost" title="Editar" onClick={() => setEditarVenda(v)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" title="Cancelar" onClick={() => { setCancelarTarget(v); setMotivo(''); }}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
                     )}
                   </TableCell>
                 </TableRow>
@@ -124,6 +141,8 @@ export default function Vendas() {
       </div>
 
       <DialogDetalhes venda={verVenda} onClose={() => setVerVenda(null)} />
+
+      <EditarVendaDialog venda={editarVenda} onClose={() => setEditarVenda(null)} />
 
       <Dialog open={!!cancelarTarget} onOpenChange={(o) => !o && setCancelarTarget(null)}>
         <DialogContent>
@@ -158,7 +177,12 @@ export default function Vendas() {
 
 function DialogDetalhes({ venda, onClose }: { venda: VendaListagem | null; onClose: () => void }) {
   const { data: itens, isLoading } = useItensVenda(venda?.id ?? null);
+  const { data: parcelas } = useParcelasDaVenda(venda?.id ?? null);
   if (!venda) return null;
+
+  const parcelasAtivas = (parcelas ?? []).filter((p) => p.status !== 'CANCELADA');
+  const totalParcelas = parcelasAtivas.reduce((s, p) => s + Number(p.valor), 0);
+  const totalRecebido = parcelasAtivas.reduce((s, p) => s + Number(p.valor_pago ?? 0), 0);
 
   function handleImprimir() {
     if (!venda || !itens) return;
@@ -175,6 +199,14 @@ function DialogDetalhes({ venda, onClose }: { venda: VendaListagem | null; onClo
       pagamentos: venda.forma_pagamento_principal
         ? [{ forma: venda.forma_pagamento_principal, valor: Number(venda.total_liquido) }]
         : [],
+      entrada: Number(venda.entrada_valor ?? 0) || null,
+      parcelas: parcelasAtivas.length
+        ? parcelasAtivas.map((p) => ({
+            numero: p.numero_parcela ?? 0,
+            valor: Number(p.valor),
+            data_vencimento: p.data_vencimento,
+          }))
+        : undefined,
     });
   }
 
@@ -214,11 +246,65 @@ function DialogDetalhes({ venda, onClose }: { venda: VendaListagem | null; onClo
               </TableBody>
             </Table>
           </div>
-          <div className="flex justify-end gap-6 text-sm">
+          <div className="flex flex-wrap justify-end gap-6 text-sm">
             <div>Bruto: <strong>{formatCurrency(Number(venda.total_bruto))}</strong></div>
             <div>Desconto: <strong>{formatCurrency(Number(venda.desconto_total))}</strong></div>
+            {Number(venda.entrada_valor ?? 0) > 0 && (
+              <div>Entrada: <strong>{formatCurrency(Number(venda.entrada_valor))}</strong></div>
+            )}
             <div>Líquido: <strong className="text-base">{formatCurrency(Number(venda.total_liquido))}</strong></div>
           </div>
+
+          {parcelasAtivas.length > 0 && (
+            <div className="space-y-2 rounded border border-primary/25 bg-primary/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-sm">
+                  Recebíveis gerados
+                  {parcelasAtivas[0].forma_pagamento && (
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      {FORMA_LABEL[parcelasAtivas[0].forma_pagamento]}
+                      {parcelasAtivas[0].bandeira ? ` · ${BANDEIRAS.find((b) => b.value === parcelasAtivas[0].bandeira)?.label}` : ''}
+                    </span>
+                  )}
+                </strong>
+                <span className="text-xs text-muted-foreground">
+                  recebido <strong className="font-mono text-green-400">{formatCurrency(totalRecebido)}</strong>
+                  {' · '}a receber{' '}
+                  <strong className="font-mono text-primary">{formatCurrency(totalParcelas - totalRecebido)}</strong>
+                </span>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Parcela</TableHead>
+                    <TableHead>Vencimento</TableHead>
+                    <TableHead className="text-right">Bruto</TableHead>
+                    <TableHead className="text-right">Taxa</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead className="text-right">Pago</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {parcelasAtivas.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-mono">
+                        {p.numero_parcela ?? '—'}/{p.total_parcelas ?? parcelasAtivas.length}
+                      </TableCell>
+                      <TableCell>{formatDate(p.data_vencimento)}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(Number(p.valor_bruto ?? p.valor))}</TableCell>
+                      <TableCell className="text-right font-mono text-destructive">
+                        {Number(p.taxa_valor) > 0 ? `−${formatCurrency(Number(p.taxa_valor))}` : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(Number(p.valor))}</TableCell>
+                      <TableCell className="text-right font-mono">{formatCurrency(Number(p.valor_pago ?? 0))}</TableCell>
+                      <TableCell className={`text-xs ${PARCELA_STATUS_CLASS[p.status]}`}>{p.status}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
           {venda.observacao && (
             <div className="rounded border bg-muted/30 p-2 text-xs">
               <strong>Observação:</strong> {venda.observacao}

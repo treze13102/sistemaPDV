@@ -20,14 +20,20 @@ export function useClientes(search?: string) {
 export function useUpsertCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: Partial<Cliente> & { nome: string }) => {
+    mutationFn: async (payload: Partial<Cliente> & { nome: string }): Promise<Cliente> => {
       if (payload.id) {
-        const { error } = await supabase.from('clientes').update(payload).eq('id', payload.id);
+        const { data, error } = await supabase
+          .from('clientes')
+          .update(payload)
+          .eq('id', payload.id)
+          .select('*')
+          .single();
         if (error) throw error;
-      } else {
-        const { error } = await supabase.from('clientes').insert(payload);
-        if (error) throw error;
+        return data as Cliente;
       }
+      const { data, error } = await supabase.from('clientes').insert(payload).select('*').single();
+      if (error) throw error;
+      return data as Cliente;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });

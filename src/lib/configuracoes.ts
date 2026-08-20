@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { TaxasRecebiveis } from '@/lib/recebiveis';
 import type { FormaPagamento, LocalizacaoEstoque, VendaCanal } from '@/types/database';
 
 export type TamanhoPapelCupom = '58mm' | '80mm' | 'A4' | 'personalizado';
@@ -53,6 +54,7 @@ export interface ConfiguracoesSistema {
     exigir_cliente_fiado: boolean;
     permitir_troco_apenas_dinheiro: boolean;
   };
+  recebiveis: TaxasRecebiveis;
   whatsapp: {
     ativo: boolean;
     ddi_padrao: string;
@@ -114,6 +116,22 @@ export const CONFIGURACOES_DEFAULT: ConfiguracoesSistema = {
     exigir_cliente_fiado: true,
     permitir_troco_apenas_dinheiro: true,
   },
+  // Pré-preenchido com as taxas informadas pela adquirente (extrato de tarifas
+  // por bandeira). Cabal só tinha débito/à vista visíveis no extrato — o
+  // parcelado ficou com o mesmo patamar de Visa/Master até confirmação.
+  recebiveis: {
+    bandeiras: {
+      mastercard: { debito_pct: 1.60, credito_vista_pct: 2.89, parcelado_2a6_pct: 3.38, parcelado_7mais_pct: 3.64 },
+      visa: { debito_pct: 1.60, credito_vista_pct: 2.89, parcelado_2a6_pct: 3.38, parcelado_7mais_pct: 3.64 },
+      elo: { debito_pct: 2.50, credito_vista_pct: 3.59, parcelado_2a6_pct: 4.10, parcelado_7mais_pct: 4.59 },
+      amex: { debito_pct: 0, credito_vista_pct: 4.79, parcelado_2a6_pct: 4.99, parcelado_7mais_pct: 4.99 },
+      cabal: { debito_pct: 1.60, credito_vista_pct: 2.89, parcelado_2a6_pct: 3.38, parcelado_7mais_pct: 3.64 },
+      outras: { debito_pct: 0, credito_vista_pct: 0, parcelado_2a6_pct: 0, parcelado_7mais_pct: 0 },
+    },
+    dias_recebimento_credito: 30,
+    dias_recebimento_debito: 1,
+    gerar_recebivel_debito: false,
+  },
   whatsapp: {
     ativo: true,
     ddi_padrao: '55',
@@ -128,6 +146,15 @@ function mergeConfig(base: ConfiguracoesSistema, saved: Partial<ConfiguracoesSis
     cupom: { ...base.cupom, ...saved.cupom },
     impressao: { ...base.impressao, ...saved.impressao },
     pdv: { ...base.pdv, ...saved.pdv },
+    // Formato anterior (taxa única por forma) não tinha `bandeiras` — nesse
+    // caso descarta o que foi salvo e usa os defaults por bandeira/tarifário.
+    recebiveis: saved.recebiveis && 'bandeiras' in saved.recebiveis
+      ? {
+          ...base.recebiveis,
+          ...saved.recebiveis,
+          bandeiras: { ...base.recebiveis.bandeiras, ...saved.recebiveis.bandeiras },
+        }
+      : base.recebiveis,
     whatsapp: { ...base.whatsapp, ...saved.whatsapp },
   };
 }

@@ -5,6 +5,8 @@ import type { LocalizacaoEstoque, MovimentoEstoque, MovimentoTipo, Produto } fro
 
 const KEY_SALDO = ['estoque', 'saldo'];
 const KEY_MOV = ['estoque', 'movimentos'];
+const KEY_VALIDADE = ['estoque', 'proximos_validade'];
+const DIAS_ALERTA_VALIDADE = 30;
 
 export interface SaldoLinha {
   produto_id: string;
@@ -109,6 +111,7 @@ export interface CriarMovimentoInput {
   quantidade: number;
   localizacao: LocalizacaoEstoque;
   custo_unitario?: number | null;
+  data_validade?: string | null;
   observacao?: string | null;
 }
 
@@ -126,6 +129,142 @@ export function useCriarMovimento() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY_SALDO });
       qc.invalidateQueries({ queryKey: KEY_MOV });
+      qc.invalidateQueries({ queryKey: KEY_VALIDADE });
+    },
+  });
+}
+
+export interface LoteValidade {
+  id: string;
+  produto_id: string;
+  quantidade: number;
+  localizacao: LocalizacaoEstoque;
+  data_validade: string;
+  dias_restantes: number;
+  vencido: boolean;
+  produto: { id: string; nome: string; sku: string | null };
+}
+
+// Lotes com validade vencida ou vencendo nos próximos DIAS_ALERTA_VALIDADE dias.
+// Considera apenas entradas com saldo (quantidade > 0) de produtos ativos.
+export function useLotesProximosValidade() {
+  return useQuery({
+    queryKey: KEY_VALIDADE,
+    queryFn: async () => {
+      const limite = new Date();
+      limite.setDate(limite.getDate() + DIAS_ALERTA_VALIDADE);
+      const limiteStr = limite.toISOString().slice(0, 10);
+
+      const { data, error } = await supabase
+        .from('movimentos_estoque')
+        .select('id, produto_id, quantidade, localizacao, data_validade, produto:produtos(id,nome,sku,status)')
+        .not('data_validade', 'is', null)
+        .gt('quantidade', 0)
+        .lte('data_validade', limiteStr)
+        .order('data_validade', { ascending: true });
+      if (error) throw error;
+
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
+      return (data ?? [])
+        .map((raw) => {
+          const produto = Array.isArray(raw.produto) ? raw.produto[0] : raw.produto;
+          const dataValidade = new Date(`${raw.data_validade}T00:00:00`);
+          const dias_restantes = Math.round((dataValidade.getTime() - hoje.getTime()) / 86400000);
+          return {
+            id: raw.id,
+            produto_id: raw.produto_id,
+            quantidade: Number(raw.quantidade),
+            localizacao: raw.localizacao,
+            data_validade: raw.data_validade as string,
+            dias_restantes,
+            vencido: dias_restantes < 0,
+            produto,
+          } as LoteValidade & { produto: { status: string } };
+        })
+        .filter((l) => l.produto?.status === 'ativo');
+    },
+  });
+}
+
+export function useAtualizarValidadeMovimento() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data_validade }: { id: string; data_validade: string | null }) => {
+      const { error } = await supabase.from('movimentos_estoque').update({ data_validade }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY_MOV });
+      qc.invalidateQueries({ queryKey: KEY_VALIDADE });
+    },
+  });
+}
+
+// Divide um lote com quantidade > 1 em N movimentos de quantidade 1, cada um com
+// sua própria data de validade. O movimento original é reduzido para quantidade 1
+// (com a primeira data) e os demais são criados como novas linhas.
+export function useDividirLoteValidade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      movimento,
+      datas,
+    }: {
+      movimento: MovimentoEstoque;
+      datas: (string | null)[];
+    }) => {
+      const usuarioId = await getUsuarioAtualId();
+      const [primeira, ...resto] = datas;
+
+      const { error: e1 } = await supabase
+        .from('movimentos_estoque')
+        .update({ quantidade: 1, data_validade: primeira ?? null })
+        .eq('id', movimento.id);
+      if (e1) throw e1;
+
+      if (resto.length > 0) {
+        const { error: e2 } = await supabase.from('movimentos_estoque').insert(
+          resto.map((data_validade) => ({
+            produto_id: movimento.produto_id,
+            variacao_id: movimento.variacao_id,
+            tipo: movimento.tipo,
+            quantidade: 1,
+            localizacao: movimento.localizacao,
+            custo_unitario: movimento.custo_unitario,
+            data_validade: data_validade ?? null,
+            observacao: movimento.observacao,
+            usuario_id: usuarioId,
+          })),
+        );
+        if (e2) throw e2;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY_SALDO });
+      qc.invalidateQueries({ queryKey: KEY_MOV });
+      qc.invalidateQueries({ queryKey: KEY_VALIDADE });
+    },
+  });
+}
+
+// Registra vários movimentos de uma vez (ex.: uma linha por unidade, cada uma
+// com sua própria data de validade). Todas as linhas compartilham os demais campos.
+export function useCriarMovimentos() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (inputs: CriarMovimentoInput[]) => {
+      const usuarioId = await getUsuarioAtualId();
+      const { error } = await supabase.from('movimentos_estoque').insert(
+        inputs.map((input) => ({ ...input, usuario_id: usuarioId })),
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY_SALDO });
+      qc.invalidateQueries({ queryKey: KEY_MOV });
+      qc.invalidateQueries({ queryKey: KEY_VALIDADE });
     },
   });
 }

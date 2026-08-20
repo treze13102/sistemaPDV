@@ -12,6 +12,7 @@ import {
   DollarSign,
   LogOut,
   Boxes,
+  CalendarDays,
   ClipboardList,
   Settings,
   Menu,
@@ -32,6 +33,7 @@ const nav = [
   { to: '/fornecedores', label: 'Fornecedores', icon: Truck },
   { to: '/pedidos-compra', label: 'Pedidos compra', icon: ClipboardList },
   { to: '/financeiro', label: 'Financeiro', icon: DollarSign },
+  { to: '/calendario', label: 'Calendário', icon: CalendarDays },
   { to: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { to: '/configuracoes', label: 'Configurações', icon: Settings },
 ];

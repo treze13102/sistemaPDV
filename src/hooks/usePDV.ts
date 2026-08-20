@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getUsuarioAtualId } from '@/lib/usuarioAtual';
+import { construirRecebiveis, type BandeiraCartao, type ParcelaPlano } from '@/lib/recebiveis';
+import { carregarConfiguracoes } from '@/lib/configuracoes';
 import type {
   FormaPagamento,
   LocalizacaoEstoque,
@@ -22,6 +24,12 @@ export interface PagamentoCarrinho {
   forma: FormaPagamento;
   valor: number;
   parcelas?: number;
+  /** Crédito/débito: define a taxa da adquirente aplicada. */
+  bandeira?: BandeiraCartao;
+  /** Crediário: valor pago no ato; o restante é financiado em parcelas. */
+  entrada?: number;
+  /** Datas/valores acordados. Quando ausente, o plano é gerado automaticamente. */
+  plano?: ParcelaPlano[];
 }
 
 export interface FinalizarVendaInput {
@@ -48,6 +56,7 @@ export function useFinalizarVenda() {
       const usuarioId = await getUsuarioAtualId();
       const status: VendaStatus = input.status ?? 'CONCLUIDA';
       const forma_principal = input.pagamentos[0]?.forma ?? null;
+      const entrada_valor = input.pagamentos.reduce((s, p) => s + (p.entrada ?? 0), 0);
 
       const { data: venda, error: e1 } = await supabase
         .from('vendas')
@@ -60,6 +69,7 @@ export function useFinalizarVenda() {
           total_liquido,
           forma_pagamento_principal: forma_principal,
           status,
+          entrada_valor,
           observacao: input.observacao ?? null,
           validade_orcamento: input.validade_orcamento ?? null,
         })
@@ -82,6 +92,9 @@ export function useFinalizarVenda() {
       const { error: e2 } = await supabase.from('itens_venda').insert(itensPayload);
       if (e2) throw e2;
 
+      // Guardado fora do bloco p/ alimentar o carnê/comprovante do crediário.
+      let recebiveisGerados: ParcelaPlano[] = [];
+
       if (status === 'CONCLUIDA') {
         // Pagamentos
         if (input.pagamentos.length) {
@@ -90,6 +103,7 @@ export function useFinalizarVenda() {
             forma: p.forma,
             valor: p.valor,
             parcelas: p.parcelas ?? 1,
+            bandeira: p.bandeira ?? null,
           }));
           const { error: e3 } = await supabase.from('pagamentos_venda').insert(pagPayload);
           if (e3) throw e3;
@@ -109,40 +123,42 @@ export function useFinalizarVenda() {
         const { error: e4 } = await supabase.from('movimentos_estoque').insert(movPayload);
         if (e4) throw e4;
 
-        // Parcelas RECEBER para FIADO
-        const fiado = input.pagamentos.filter((p) => p.forma === 'FIADO');
-        if (fiado.length > 0 && input.cliente_id) {
-          const totalFiado = fiado.reduce((s, p) => s + p.valor, 0);
-          const numParcelas = fiado[0].parcelas ?? 1;
-          const valorParcela = +(totalFiado / numParcelas).toFixed(2);
-          const hoje = new Date();
-          const parcelas = Array.from({ length: numParcelas }, (_, idx) => {
-            const venc = new Date(hoje);
-            venc.setMonth(venc.getMonth() + idx + 1);
-            return {
-              tipo: 'RECEBER' as const,
-              origem_tipo: 'VENDA' as const,
-              origem_id: vendaId,
-              descricao: `Venda #${vendaId.slice(0, 8)} — parcela ${idx + 1}/${numParcelas}`,
-              data_emissao: hoje.toISOString().slice(0, 10),
-              data_vencimento: venc.toISOString().slice(0, 10),
-              valor: valorParcela,
-              centro_custo: 'Loja' as const,
-              cliente_id: input.cliente_id,
-            };
-          });
-          const { error: e5 } = await supabase.from('parcelas_financeiras').insert(parcelas);
+        // Recebíveis: toda forma a prazo vira parcelas RECEBER em aberto.
+        // É isso que alimenta o calendário, a projeção de caixa e o dashboard.
+        const recebiveis = construirRecebiveis({
+          vendaId,
+          numeroVenda: venda.numero as number,
+          clienteId: input.cliente_id,
+          pagamentos: input.pagamentos,
+          taxas: carregarConfiguracoes().recebiveis,
+        });
+
+        if (recebiveis.length > 0) {
+          const { error: e5 } = await supabase.from('parcelas_financeiras').insert(recebiveis);
           if (e5) throw e5;
         }
+
+        recebiveisGerados = recebiveis.map((r) => ({
+          numero: r.numero_parcela,
+          valor: r.valor,
+          data_vencimento: r.data_vencimento,
+        }));
       }
 
-      return { id: vendaId, numero: venda.numero as number, data_hora: venda.data_hora as string };
+      return {
+        id: vendaId,
+        numero: venda.numero as number,
+        data_hora: venda.data_hora as string,
+        entrada_valor,
+        parcelas: recebiveisGerados,
+      };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['vendas'] });
       qc.invalidateQueries({ queryKey: ['estoque'] });
       qc.invalidateQueries({ queryKey: ['parcelas'] });
+      qc.invalidateQueries({ queryKey: ['fluxo-caixa'] });
       qc.invalidateQueries({ queryKey: ['relatorios'] });
     },
   });

@@ -9,6 +9,7 @@ import Clientes from '@/pages/Clientes';
 import Fornecedores from '@/pages/Fornecedores';
 import PDV from '@/pages/PDV';
 import Financeiro from '@/pages/Financeiro';
+import Calendario from '@/pages/Calendario';
 import PedidosCompra from '@/pages/PedidosCompra';
 import Vendas from '@/pages/Vendas';
 import Relatorios from '@/pages/Relatorios';
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="pdv" element={<PDV />} />
         <Route path="estoque" element={<Navigate to="/produtos" replace />} />
         <Route path="financeiro" element={<Financeiro />} />
+        <Route path="calendario" element={<Calendario />} />
         <Route path="pedidos-compra" element={<PedidosCompra />} />
         <Route path="vendas" element={<Vendas />} />
         <Route path="relatorios" element={<Relatorios />} />

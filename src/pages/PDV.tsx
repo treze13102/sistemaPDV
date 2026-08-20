@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, FileText, ImageIcon, MessageCircle, Minus, Plus, Printer, Search, Trash2, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/PageHeader';
@@ -25,6 +25,7 @@ import {
   type ComprovanteData,
 } from '@/lib/comprovante';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
+import { BANDEIRAS, gerarPlanoCartao, gerarPlanoCrediario, type BandeiraCartao, type ParcelaPlano } from '@/lib/recebiveis';
 import type { Produto } from '@/types/database';
 
 interface VariacaoLite {
@@ -47,9 +48,16 @@ const FORMAS: { value: FormaPagamento; label: string }[] = [
   { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
   { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' },
   { value: 'PIX', label: 'PIX' },
-  { value: 'FIADO', label: 'Fiado/Crediário' },
+  { value: 'CREDIARIO', label: 'Crediário' },
+  { value: 'FIADO', label: 'Fiado' },
   { value: 'VALE_PRESENTE', label: 'Vale Presente' },
 ];
+
+// Formas que abrem o planejamento de parcelas no PDV.
+const FORMAS_PARCELADAS: FormaPagamento[] = ['CARTAO_CREDITO', 'CREDIARIO', 'FIADO'];
+const FORMAS_CREDIARIO: FormaPagamento[] = ['CREDIARIO', 'FIADO'];
+// Formas que pedem bandeira, para aplicar a taxa certa da adquirente.
+const FORMAS_CARTAO: FormaPagamento[] = ['CARTAO_CREDITO', 'CARTAO_DEBITO'];
 
 const CANAIS: VendaCanal[] = ['Loja', 'WhatsApp', 'Instagram', 'Marketplace', 'Site'];
 const LOCAIS: LocalizacaoEstoque[] = ['Loja', 'Deposito', 'Fabrica3D', 'Consignado'];
@@ -62,7 +70,7 @@ export default function PDV() {
   const finalizar = useFinalizarVenda();
 
   const [itens, setItens] = useState<ItemCarrinho[]>([]);
-  const [descontoGlobal, setDescontoGlobal] = useState(0);
+  const [descontoExtraPct, setDescontoExtraPct] = useState(0);
   const [clienteId, setClienteId] = useState<string | null>(null);
   const [clienteBusca, setClienteBusca] = useState('');
   const [canal, setCanal] = useState<VendaCanal>(configuracoes.pdv.canal_padrao);
@@ -70,14 +78,24 @@ export default function PDV() {
   const [observacao, setObservacao] = useState('');
   const [pagamentos, setPagamentos] = useState<PagamentoCarrinho[]>([]);
   const [formaSelect, setFormaSelect] = useState<FormaPagamento>(configuracoes.pdv.forma_pagamento_padrao);
+  const [bandeira, setBandeira] = useState<BandeiraCartao>('mastercard');
   const [valorPag, setValorPag] = useState<number>(0);
-  const [parcelasFiado, setParcelasFiado] = useState<number>(1);
+  // Planejamento de parcelas (cartão de crédito / crediário)
+  const [numParcelas, setNumParcelas] = useState<number>(1);
+  const [entradaCrediario, setEntradaCrediario] = useState<number>(0);
+  const [primeiroVenc, setPrimeiroVenc] = useState<string>('');
+  /** null = usa o plano gerado automaticamente; array = datas/valores ajustados à mão. */
+  const [planoEditado, setPlanoEditado] = useState<ParcelaPlano[] | null>(null);
   const [comprovante, setComprovante] = useState<ComprovanteData | null>(null);
   const [posVendaOpen, setPosVendaOpen] = useState(false);
   const [imagemZoom, setImagemZoom] = useState<{ src: string; nome: string } | null>(null);
 
   const total_bruto = useMemo(() => itens.reduce((s, i) => s + i.quantidade * i.preco_unitario, 0), [itens]);
   const desconto_itens = useMemo(() => itens.reduce((s, i) => s + i.desconto, 0), [itens]);
+  const descontoGlobal = useMemo(
+    () => +(Math.max(total_bruto - desconto_itens, 0) * (Math.min(Math.max(descontoExtraPct, 0), 100) / 100)).toFixed(2),
+    [total_bruto, desconto_itens, descontoExtraPct],
+  );
   const total_liquido = total_bruto - desconto_itens - descontoGlobal;
   const total_adicionado = pagamentos.reduce((s, p) => s + p.valor, 0);
   const valor_pagamento_unico = valorPag > 0 ? valorPag : Math.max(total_liquido, 0);
@@ -179,18 +197,65 @@ export default function PDV() {
     setItens((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  function addPagamento() {
+  // ---- Planejamento de parcelas da forma em configuração ----
+  const ehParcelada = FORMAS_PARCELADAS.includes(formaSelect);
+  const ehCrediario = FORMAS_CREDIARIO.includes(formaSelect);
+
+  // Valor que a forma selecionada vai cobrir: o digitado, ou o que falta fechar.
+  const valorEmConfiguracao = useMemo(() => {
+    if (valorPag > 0) return +valorPag.toFixed(2);
     const restanteParaAdicionar = Math.max(total_liquido - total_adicionado, 0);
-    const valor = valorPag > 0 ? valorPag : restanteParaAdicionar;
+    return +(pagamentos.length > 0 ? restanteParaAdicionar : Math.max(total_liquido, 0)).toFixed(2);
+  }, [valorPag, total_liquido, total_adicionado, pagamentos.length]);
+
+  const entradaEfetiva = ehCrediario ? Math.min(Math.max(entradaCrediario, 0), valorEmConfiguracao) : 0;
+  const valorFinanciado = +(valorEmConfiguracao - entradaEfetiva).toFixed(2);
+
+  const planoAutomatico = useMemo(() => {
+    if (formaSelect === 'CARTAO_CREDITO') return gerarPlanoCartao(valorEmConfiguracao, numParcelas);
+    if (FORMAS_CREDIARIO.includes(formaSelect)) {
+      return valorFinanciado > 0 ? gerarPlanoCrediario(valorFinanciado, numParcelas, primeiroVenc || undefined) : [];
+    }
+    return [];
+  }, [formaSelect, valorEmConfiguracao, valorFinanciado, numParcelas, primeiroVenc]);
+
+  // Alterar os parâmetros descarta os ajustes manuais e volta ao plano automático.
+  useEffect(() => {
+    setPlanoEditado(null);
+  }, [formaSelect, numParcelas, primeiroVenc, entradaCrediario, valorEmConfiguracao]);
+
+  const plano = planoEditado ?? planoAutomatico;
+  const somaPlano = useMemo(() => plano.reduce((s, p) => s + p.valor, 0), [plano]);
+
+  function patchParcela(idx: number, patch: Partial<ParcelaPlano>) {
+    setPlanoEditado((prev) => (prev ?? planoAutomatico).map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  }
+
+  function montarPagamento(valor: number): PagamentoCarrinho {
+    const bandeiraSelecionada = FORMAS_CARTAO.includes(formaSelect) ? bandeira : undefined;
+    if (!FORMAS_PARCELADAS.includes(formaSelect)) {
+      return { forma: formaSelect, valor, parcelas: 1, bandeira: bandeiraSelecionada };
+    }
+    const entrada = FORMAS_CREDIARIO.includes(formaSelect) ? Math.min(Math.max(entradaCrediario, 0), valor) : 0;
+    return {
+      forma: formaSelect,
+      valor,
+      parcelas: Math.max(numParcelas, 1),
+      bandeira: bandeiraSelecionada,
+      entrada: entrada > 0 ? +entrada.toFixed(2) : undefined,
+      plano: plano.length > 0 ? plano : undefined,
+    };
+  }
+
+  function addPagamento() {
+    const valor = valorEmConfiguracao;
     if (valor <= 0) {
       toast.error('Valor inválido');
       return;
     }
-    setPagamentos((p) => [
-      ...p,
-      { forma: formaSelect, valor: +valor.toFixed(2), parcelas: formaSelect === 'FIADO' ? parcelasFiado : 1 },
-    ]);
+    setPagamentos((p) => [...p, montarPagamento(valor)]);
     setValorPag(0);
+    setPlanoEditado(null);
   }
   function addPagamentoRapido(forma: FormaPagamento) {
     setFormaSelect(forma);
@@ -201,13 +266,7 @@ export default function PDV() {
   }
   function getPagamentosVenda(): PagamentoCarrinho[] {
     if (pagamentos.length > 0) return pagamentos;
-    return [
-      {
-        forma: formaSelect,
-        valor: +valor_pagamento_unico.toFixed(2),
-        parcelas: formaSelect === 'FIADO' ? parcelasFiado : 1,
-      },
-    ];
+    return [montarPagamento(+valor_pagamento_unico.toFixed(2))];
   }
 
   async function finalizarVenda(status: 'CONCLUIDA' | 'ORCAMENTO') {
@@ -227,9 +286,10 @@ export default function PDV() {
         toast.error('Troco permitido apenas quando houver pagamento em dinheiro');
         return;
       }
-      const temFiado = pagamentosVenda.some((p) => p.forma === 'FIADO');
-      if (configuracoes.pdv.exigir_cliente_fiado && temFiado && !clienteId) {
-        toast.error('Venda fiada requer cliente selecionado');
+      // Crediário/fiado precisa de cliente: as parcelas ficam no nome dele.
+      const temCrediario = pagamentosVenda.some((p) => FORMAS_CREDIARIO.includes(p.forma));
+      if (temCrediario && !clienteId) {
+        toast.error('Venda no crediário/fiado requer cliente selecionado');
         return;
       }
     }
@@ -284,6 +344,8 @@ export default function PDV() {
         itens: snapshot.itens,
         pagamentos: snapshot.pagamentos.map((p) => ({ forma: p.forma, valor: p.valor, parcelas: p.parcelas ?? null })),
         troco: snapshot.troco,
+        entrada: vendaCriada.entrada_valor || null,
+        parcelas: vendaCriada.parcelas?.length ? vendaCriada.parcelas : undefined,
       };
       toast.success(status === 'CONCLUIDA' ? 'Venda concluida' : 'Orcamento salvo');
       if (status === 'CONCLUIDA') {
@@ -294,10 +356,14 @@ export default function PDV() {
       setItens([]);
       setPagamentos([]);
       setValorPag(0);
-      setDescontoGlobal(0);
+      setDescontoExtraPct(0);
       setObservacao('');
       setClienteId(null);
       setClienteBusca('');
+      setNumParcelas(1);
+      setEntradaCrediario(0);
+      setPrimeiroVenc('');
+      setPlanoEditado(null);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -592,7 +658,23 @@ export default function PDV() {
               <div className="flex justify-between"><span>Desconto itens</span><span className="font-mono">−{formatCurrency(desconto_itens)}</span></div>
               <div className="flex items-center justify-between gap-2">
                 <span>Desconto extra</span>
-                <Input type="number" step="0.01" className="h-8 w-32 text-right" value={descontoGlobal} onChange={(e) => setDescontoGlobal(Number(e.target.value) || 0)} />
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      max={100}
+                      className="h-8 w-20 pr-5 text-right"
+                      value={descontoExtraPct}
+                      onChange={(e) => setDescontoExtraPct(Math.min(Math.max(Number(e.target.value) || 0, 0), 100))}
+                    />
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                  </div>
+                  <span className="w-20 text-right font-mono text-xs text-muted-foreground">
+                    −{formatCurrency(descontoGlobal)}
+                  </span>
+                </div>
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-semibold">
                 <span>Total</span>
@@ -631,6 +713,14 @@ export default function PDV() {
                 <Button type="button" variant="outline" onClick={() => addPagamentoRapido('CARTAO_CREDITO')}>
                   Usar credito
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="col-span-2 border-primary/40 text-primary hover:bg-primary/10"
+                  onClick={() => addPagamentoRapido('CREDIARIO')}
+                >
+                  Usar crediário
+                </Button>
               </div>
               <p className="text-xs text-muted-foreground">
                 Para pagamento unico, selecione a forma e finalize. Informe valor recebido apenas quando precisar calcular troco.
@@ -642,10 +732,120 @@ export default function PDV() {
                 </Select>
                 <Input type="number" step="0.01" placeholder="Recebido" className="w-32" value={valorPag} onChange={(e) => setValorPag(Number(e.target.value) || 0)} />
               </div>
-              {formaSelect === 'FIADO' && (
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs">Parcelas</Label>
-                  <Input type="number" min={1} max={36} className="w-20" value={parcelasFiado} onChange={(e) => setParcelasFiado(Number(e.target.value) || 1)} />
+              {FORMAS_CARTAO.includes(formaSelect) && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Bandeira</Label>
+                  <Select value={bandeira} onValueChange={(v) => setBandeira(v as BandeiraCartao)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{BANDEIRAS.map((b) => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
+              {ehParcelada && (
+                <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+                  {ehCrediario && !clienteId && (
+                    <p className="rounded border border-orange-500/40 bg-orange-500/10 p-2 text-xs text-orange-400">
+                      Selecione um cliente — as parcelas do crediário ficam no nome dele.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Parcelas</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={36}
+                        value={numParcelas}
+                        onChange={(e) => setNumParcelas(Math.min(Math.max(Number(e.target.value) || 1, 1), 36))}
+                      />
+                    </div>
+                    {ehCrediario ? (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Entrada</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={entradaCrediario}
+                          onChange={(e) => setEntradaCrediario(Math.max(Number(e.target.value) || 0, 0))}
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <Label className="text-xs">1º recebimento</Label>
+                        <div className="flex h-10 items-center rounded-md border border-input bg-muted/40 px-3 text-xs text-muted-foreground">
+                          30 dias após a venda
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {ehCrediario && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">1º vencimento</Label>
+                      <Input type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)} />
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">
+                      {ehCrediario ? 'A financiar' : 'Total no cartão'}
+                    </span>
+                    <span className="font-mono font-semibold">
+                      {formatCurrency(ehCrediario ? valorFinanciado : valorEmConfiguracao)}
+                    </span>
+                  </div>
+
+                  {plano.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="mb-0 text-xs">Parcelas previstas</Label>
+                        {planoEditado && (
+                          <button
+                            type="button"
+                            className="text-[11px] text-primary underline underline-offset-2"
+                            onClick={() => setPlanoEditado(null)}
+                          >
+                            restaurar automático
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-44 space-y-1.5 overflow-y-auto">
+                        {plano.map((parcela, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <span className="w-8 shrink-0 text-[11px] text-muted-foreground">
+                              {parcela.numero}/{plano.length}
+                            </span>
+                            <Input
+                              type="date"
+                              className="h-8 min-w-0 flex-1 text-xs"
+                              value={parcela.data_vencimento}
+                              onChange={(e) => patchParcela(idx, { data_vencimento: e.target.value })}
+                            />
+                            <Input
+                              type="number"
+                              step="0.01"
+                              className="h-8 w-24 shrink-0 text-right text-xs"
+                              value={parcela.valor}
+                              onChange={(e) => patchParcela(idx, { valor: Number(e.target.value) || 0 })}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between border-t pt-1.5 text-xs">
+                        <span className="text-muted-foreground">Soma das parcelas</span>
+                        <span
+                          className={`font-mono font-semibold ${
+                            Math.abs(somaPlano - (ehCrediario ? valorFinanciado : valorEmConfiguracao)) > 0.01
+                              ? 'text-orange-500'
+                              : 'text-green-500'
+                          }`}
+                        >
+                          {formatCurrency(somaPlano)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <Button variant="outline" className="w-full" onClick={addPagamento}>
@@ -655,7 +855,18 @@ export default function PDV() {
                 <div className="space-y-1 text-sm">
                   {pagamentos.map((p, i) => (
                     <div key={i} className="flex items-center justify-between rounded border p-2">
-                      <span>{FORMAS.find((f) => f.value === p.forma)?.label}{p.forma === 'FIADO' ? ` (${p.parcelas}x)` : ''}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate">
+                          {FORMAS.find((f) => f.value === p.forma)?.label}
+                          {FORMAS_PARCELADAS.includes(p.forma) && (p.parcelas ?? 1) > 1 ? ` ${p.parcelas}x` : ''}
+                          {p.bandeira ? ` · ${BANDEIRAS.find((b) => b.value === p.bandeira)?.label}` : ''}
+                        </span>
+                        {(p.entrada ?? 0) > 0 && (
+                          <span className="block text-[11px] text-muted-foreground">
+                            entrada {formatCurrency(p.entrada!)}
+                          </span>
+                        )}
+                      </span>
                       <div className="flex items-center gap-2">
                         <span className="font-mono">{formatCurrency(p.valor)}</span>
                         <Button size="icon" variant="ghost" onClick={() => removePagamento(i)}>

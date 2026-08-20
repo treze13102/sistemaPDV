@@ -48,7 +48,11 @@ export function useUpsertParcela() {
         if (error) throw error;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      // Baixas e novos lançamentos mudam calendário, projeção e dashboard.
+      qc.invalidateQueries({ queryKey: ['fluxo-caixa'] });
+    },
   });
 }
 
@@ -65,7 +69,11 @@ export function useBaixarParcela() {
         .eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      // Baixas e novos lançamentos mudam calendário, projeção e dashboard.
+      qc.invalidateQueries({ queryKey: ['fluxo-caixa'] });
+    },
   });
 }
 
@@ -76,6 +84,10 @@ export function useDeleteParcela() {
       const { error } = await supabase.from('parcelas_financeiras').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+      // Baixas e novos lançamentos mudam calendário, projeção e dashboard.
+      qc.invalidateQueries({ queryKey: ['fluxo-caixa'] });
+    },
   });
 }

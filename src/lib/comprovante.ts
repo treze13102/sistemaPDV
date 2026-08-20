@@ -18,6 +18,13 @@ export interface ComprovantePagamento {
   parcelas?: number | null;
 }
 
+export interface ComprovanteParcela {
+  numero: number;
+  valor: number;
+  /** ISO yyyy-mm-dd */
+  data_vencimento: string;
+}
+
 export interface ComprovanteData {
   venda: Pick<Venda, 'numero' | 'data_hora' | 'total_bruto' | 'desconto_total' | 'total_liquido' | 'canal' | 'observacao' | 'status'>;
   cliente_nome?: string | null;
@@ -26,6 +33,10 @@ export interface ComprovanteData {
   itens: ComprovanteItem[];
   pagamentos: ComprovantePagamento[];
   troco?: number | null;
+  /** Crediário: valor pago no ato. */
+  entrada?: number | null;
+  /** Crediário/cartão: parcelas acordadas, impressas como carnê. */
+  parcelas?: ComprovanteParcela[];
   loja_nome?: string;
   loja_cnpj?: string;
 }
@@ -41,6 +52,7 @@ const FORMA_LABEL: Record<string, string> = {
   CARTAO_DEBITO: 'Cartao Debito',
   PIX: 'PIX',
   FIADO: 'Fiado',
+  CREDIARIO: 'Crediario',
   VALE_PRESENTE: 'Vale Presente',
 };
 
@@ -172,6 +184,24 @@ export function buildComprovanteLinhas(
   }
   if (troco > 0) L.push(linhaLR('Troco', formatCurrency(troco), cols));
 
+  // Carne do crediario: datas e valores acordados com o cliente.
+  if (d.parcelas?.length) {
+    const totalParcelas = d.parcelas.reduce((s, p) => s + p.valor, 0);
+    const entrada = Number(d.entrada ?? 0);
+    L.push(divisor);
+    L.push(centralizar('CARNE / PARCELAS', cols));
+    L.push(divisor);
+    L.push(linhaLR('Valor total da venda', formatCurrency(Number(d.venda.total_liquido)), cols));
+    if (entrada > 0) L.push(linhaLR('Entrada', formatCurrency(entrada), cols));
+    L.push(linhaLR('Parcelas', `${d.parcelas.length}x`, cols));
+    L.push('');
+    for (const p of d.parcelas) {
+      L.push(linhaLR(`${p.numero}/${d.parcelas.length}  ${formatDate(p.data_vencimento)}`, formatCurrency(p.valor), cols));
+    }
+    L.push('');
+    L.push(linhaLR('TOTAL A PAGAR', formatCurrency(totalParcelas), cols));
+  }
+
   if (d.venda.observacao) {
     L.push(divisor);
     quebrar(`Obs: ${d.venda.observacao}`, cols).forEach((l) => L.push(l));
@@ -298,6 +328,25 @@ export function buildComprovanteHtml(
     )
     .join('');
 
+  // Carne do crediario: valor total, entrada, parcelas e vencimentos.
+  const entradaValor = Number(d.entrada ?? 0);
+  const carneHtml = d.parcelas?.length
+    ? `
+  <h2>Carne / Parcelas</h2>
+  <div class="row"><span>Valor total da venda</span><strong>${formatCurrency(Number(d.venda.total_liquido))}</strong></div>
+  ${entradaValor > 0 ? `<div class="row"><span>Entrada</span><span>${formatCurrency(entradaValor)}</span></div>` : ''}
+  <div class="row"><span>Parcelas</span><span>${d.parcelas.length}x</span></div>
+  <div class="carne">
+    ${d.parcelas
+      .map(
+        (p) =>
+          `<div class="row"><span>${p.numero}/${d.parcelas!.length} &nbsp; ${formatDate(p.data_vencimento)}</span><strong>${formatCurrency(p.valor)}</strong></div>`
+      )
+      .join('')}
+  </div>
+  <div class="total row"><span>TOTAL A PAGAR</span><strong>${formatCurrency(d.parcelas.reduce((s, p) => s + p.valor, 0))}</strong></div>`
+    : '';
+
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -329,6 +378,7 @@ export function buildComprovanteHtml(
   .footer { margin-top: 16px; text-align: center; font-size: 10px; color: #555; white-space: pre-line; }
   .meta { font-size: 10px; color: #444; }
   .obs { margin-top: 8px; padding: 6px; background: #f5f5f5; font-size: 11px; }
+  .carne { border-top: 1px dashed #000; border-bottom: 1px dashed #000; margin: 6px 0; padding: 4px 0; }
   .cancelada { color: #c00; font-weight: bold; text-align: center; padding: 6px; border: 2px solid #c00; margin: 8px 0; }
   @page { size: ${config.impressao.tamanho_papel === 'A4' ? 'A4' : `${larguraMm}mm auto`}; margin: ${margemMm}mm; }
   @media print {
@@ -372,6 +422,7 @@ export function buildComprovanteHtml(
   <div class="total row"><span>TOTAL</span><strong>${formatCurrency(Number(d.venda.total_liquido))}</strong></div>
   ${d.pagamentos.length ? `<h2>Pagamento</h2>${pags}` : ''}
   ${troco > 0 ? `<div class="row"><span>Troco</span><strong>${formatCurrency(troco)}</strong></div>` : ''}
+  ${carneHtml}
   ${d.venda.observacao ? `<div class="obs"><strong>Obs:</strong> ${escape(d.venda.observacao)}</div>` : ''}
 
   <div class="footer">

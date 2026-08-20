@@ -31,7 +31,13 @@ export type FormaPagamento =
   | 'CARTAO_DEBITO'
   | 'PIX'
   | 'FIADO'
+  | 'CREDIARIO'
   | 'VALE_PRESENTE';
+
+// Formas liquidadas no ato — não geram recebível futuro.
+export const FORMAS_A_VISTA: FormaPagamento[] = ['DINHEIRO', 'PIX', 'CARTAO_DEBITO', 'VALE_PRESENTE'];
+// Formas que geram parcelas a receber automaticamente.
+export const FORMAS_A_PRAZO: FormaPagamento[] = ['CARTAO_CREDITO', 'CREDIARIO', 'FIADO'];
 
 export type ParcelaTipo = 'PAGAR' | 'RECEBER';
 export type ParcelaStatus = 'ABERTA' | 'PAGA' | 'PARCIAL' | 'ATRASADA' | 'CANCELADA';
@@ -146,6 +152,7 @@ export interface MovimentoEstoque {
   quantidade: number;
   localizacao: LocalizacaoEstoque;
   custo_unitario: number | null;
+  data_validade: string | null;
   data_hora: string;
   usuario_id: string | null;
   origem_tipo: string | null;
@@ -166,6 +173,7 @@ export interface Venda {
   total_liquido: number;
   forma_pagamento_principal: FormaPagamento | null;
   status: VendaStatus;
+  entrada_valor: number;
   observacao: string | null;
   cancelada_em: string | null;
   cancelada_motivo: string | null;
@@ -192,6 +200,7 @@ export interface PagamentoVenda {
   forma: FormaPagamento;
   valor: number;
   parcelas: number | null;
+  bandeira: string | null;
   created_at: string;
 }
 
@@ -211,6 +220,14 @@ export interface ParcelaFinanceira {
   cliente_id: string | null;
   fornecedor_id: string | null;
   observacao: string | null;
+  numero_parcela: number | null;
+  total_parcelas: number | null;
+  forma_pagamento: FormaPagamento | null;
+  /** Valor antes da taxa da adquirente. Igual a `valor` quando não há taxa. */
+  valor_bruto: number | null;
+  taxa_percentual: number;
+  taxa_valor: number;
+  bandeira: string | null;
   created_at: string;
   updated_at: string;
 }

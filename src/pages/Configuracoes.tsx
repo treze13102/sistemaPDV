@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   Building2,
   Check,
+  CreditCard,
   ImageIcon,
   MessageCircle,
   MonitorCog,
@@ -13,6 +14,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/PageHeader';
+import { useGerarRecebiveisRetroativos, useVendasSemRecebiveis } from '@/hooks/useFluxoCaixa';
+import { BANDEIRAS, FORMA_LABEL, type TaxaBandeira } from '@/lib/recebiveis';
+import { formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -34,13 +38,14 @@ import { buildComprovanteHtml, type ComprovanteData } from '@/lib/comprovante';
 import { formatCurrency } from '@/lib/utils';
 import type { FormaPagamento, LocalizacaoEstoque, VendaCanal } from '@/types/database';
 
-type AbaConfig = 'loja' | 'cupom' | 'impressao' | 'pdv' | 'whatsapp';
+type AbaConfig = 'loja' | 'cupom' | 'impressao' | 'pdv' | 'recebiveis' | 'whatsapp';
 
 const ABAS: { id: AbaConfig; label: string; icon: typeof Building2 }[] = [
   { id: 'loja', label: 'Loja', icon: Building2 },
   { id: 'cupom', label: 'Cupom', icon: ReceiptText },
   { id: 'impressao', label: 'Impressão', icon: Printer },
   { id: 'pdv', label: 'PDV', icon: MonitorCog },
+  { id: 'recebiveis', label: 'Taxas de cartão', icon: CreditCard },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
 ];
 
@@ -86,6 +91,78 @@ function BoolField({
       <Checkbox checked={checked} onCheckedChange={(v) => onChange(!!v)} />
       {label}
     </label>
+  );
+}
+
+/**
+ * Vendas a prazo antigas ficaram sem parcelas porque, quando foram feitas, só
+ * FIADO gerava recebível. Sem lançamento, elas não aparecem no calendário nem
+ * na projeção — este painel corrige isso de uma vez.
+ */
+function BackfillRecebiveis() {
+  const pendentes = useVendasSemRecebiveis();
+  const gerar = useGerarRecebiveisRetroativos();
+  const lista = pendentes.data ?? [];
+  const totalPendente = lista.reduce((s, v) => s + v.total_liquido, 0);
+
+  async function executar() {
+    try {
+      const r = await gerar.mutateAsync(lista);
+      toast.success(`${r.parcelas} parcela(s) geradas em ${r.vendas} venda(s)`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Vendas a prazo sem recebível lançado</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        {pendentes.isLoading && <p className="text-sm text-muted-foreground">Verificando vendas...</p>}
+
+        {!pendentes.isLoading && lista.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma pendência: todas as vendas no crédito, crediário e fiado já têm parcelas lançadas.
+          </p>
+        )}
+
+        {lista.length > 0 && (
+          <>
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <strong>{lista.length} venda(s)</strong> somando{' '}
+              <strong className="font-mono">{formatCurrency(totalPendente)}</strong> foram concluídas a prazo
+              mas nunca geraram contas a receber — por isso não aparecem no calendário nem na projeção de caixa.
+              Gerar agora lança as parcelas contando os vencimentos a partir da data original de cada venda.
+            </div>
+
+            <div className="max-h-56 space-y-1.5 overflow-y-auto">
+              {lista.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-[var(--royal-line)] bg-background/45 p-2 text-xs"
+                >
+                  <span className="font-mono">#{v.numero}</span>
+                  <span className="text-muted-foreground">{formatDate(v.data_hora)}</span>
+                  <span className="text-muted-foreground">
+                    {FORMA_LABEL[v.forma]}{v.parcelas > 1 ? ` ${v.parcelas}x` : ''}
+                    {v.bandeira ? ` · ${BANDEIRAS.find((b) => b.value === v.bandeira)?.label}` : ''}
+                  </span>
+                  <span className="font-mono">{formatCurrency(v.total_liquido)}</span>
+                </div>
+              ))}
+            </div>
+
+            <Button onClick={executar} disabled={gerar.isPending}>
+              Gerar recebíveis das {lista.length} venda(s)
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              As taxas configuradas acima serão aplicadas. Rode uma vez só — executar de novo criaria parcelas duplicadas
+              para vendas que já foram corrigidas (elas somem desta lista após a geração).
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -406,6 +483,109 @@ export default function Configuracoes() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {aba === 'recebiveis' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>Taxas por bandeira</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-md border border-[var(--royal-line)] bg-background/45 p-3 text-sm text-muted-foreground">
+                    O percentual retido é descontado ao gerar o recebível: o calendário e a projeção passam a
+                    mostrar o <strong className="text-foreground">líquido</strong> que cai na conta, e a taxa
+                    entra como custo no lucro líquido do mês. No PDV, a bandeira usada na venda define qual
+                    linha abaixo é aplicada. Vale para vendas novas — as já lançadas mantêm o valor original.
+                  </div>
+
+                  <div className="overflow-x-auto rounded-md border border-[var(--royal-line)]">
+                    <table className="w-full min-w-[560px] text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--royal-line)] bg-background/45 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Bandeira</th>
+                          <th className="px-3 py-2 font-medium">Débito %</th>
+                          <th className="px-3 py-2 font-medium">Crédito à vista %</th>
+                          <th className="px-3 py-2 font-medium">Parcelado 2x–6x %</th>
+                          <th className="px-3 py-2 font-medium">Parcelado 7x+ %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {BANDEIRAS.map((b) => {
+                          const linha = config.recebiveis.bandeiras[b.value];
+                          function setCampo(campo: keyof TaxaBandeira, v: number) {
+                            setSecao('recebiveis', {
+                              bandeiras: {
+                                ...config.recebiveis.bandeiras,
+                                [b.value]: { ...linha, [campo]: Math.min(Math.max(v, 0), 100) },
+                              },
+                            });
+                          }
+                          return (
+                            <tr key={b.value} className="border-b border-[var(--royal-line)] last:border-b-0">
+                              <td className="px-3 py-2 font-medium">{b.label}</td>
+                              <td className="px-3 py-1.5">
+                                <Input type="number" step="0.01" min={0} max={100} className="h-8 w-24"
+                                  value={linha.debito_pct}
+                                  onChange={(e) => setCampo('debito_pct', Number(e.target.value) || 0)} />
+                              </td>
+                              <td className="px-3 py-1.5">
+                                <Input type="number" step="0.01" min={0} max={100} className="h-8 w-24"
+                                  value={linha.credito_vista_pct}
+                                  onChange={(e) => setCampo('credito_vista_pct', Number(e.target.value) || 0)} />
+                              </td>
+                              <td className="px-3 py-1.5">
+                                <Input type="number" step="0.01" min={0} max={100} className="h-8 w-24"
+                                  value={linha.parcelado_2a6_pct}
+                                  onChange={(e) => setCampo('parcelado_2a6_pct', Number(e.target.value) || 0)} />
+                              </td>
+                              <td className="px-3 py-1.5">
+                                <Input type="number" step="0.01" min={0} max={100} className="h-8 w-24"
+                                  value={linha.parcelado_7mais_pct}
+                                  onChange={(e) => setCampo('parcelado_7mais_pct', Number(e.target.value) || 0)} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitle>Prazos de recebimento</CardTitle></CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <Field label="Intervalo entre repasses do crédito (dias)">
+                    <Input
+                      type="number" min={1} max={120}
+                      value={config.recebiveis.dias_recebimento_credito}
+                      onChange={(e) => setSecao('recebiveis', { dias_recebimento_credito: Math.min(Math.max(Number(e.target.value) || 30, 1), 120) })}
+                    />
+                  </Field>
+                  <div className="md:col-span-2 space-y-3 rounded-md border border-[var(--royal-line)] p-3">
+                    <BoolField
+                      label="Gerar recebível para o débito (D+N)"
+                      checked={config.recebiveis.gerar_recebivel_debito}
+                      onChange={(v) => setSecao('recebiveis', { gerar_recebivel_debito: v })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Desligado, o débito conta como recebido no ato e a taxa da tabela acima não é aplicada.
+                      Ligado, ele vira uma parcela líquida no prazo abaixo e passa a aparecer no calendário.
+                    </p>
+                    {config.recebiveis.gerar_recebivel_debito && (
+                      <Field label="Prazo do débito (dias)">
+                        <Input
+                          type="number" min={0} max={30}
+                          value={config.recebiveis.dias_recebimento_debito}
+                          onChange={(e) => setSecao('recebiveis', { dias_recebimento_debito: Math.min(Math.max(Number(e.target.value) || 1, 0), 30) })}
+                        />
+                      </Field>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <BackfillRecebiveis />
+            </div>
           )}
 
           {aba === 'whatsapp' && (

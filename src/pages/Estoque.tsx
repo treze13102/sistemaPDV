@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Plus, AlertTriangle, Search, ImageIcon, Pencil, Copy, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, AlertTriangle, Clock, Search, ImageIcon, Pencil, Copy, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useEstoqueSaldo, useCriarMovimento, useMovimentosEstoque, type SaldoLinha } from '@/hooks/useEstoque';
+import { useAtualizarValidadeMovimento, useDividirLoteValidade, useEstoqueSaldo, useCriarMovimento, useCriarMovimentos, useLotesProximosValidade, useMovimentosEstoque, type SaldoLinha } from '@/hooks/useEstoque';
 import { lookupProdutoByBarcode, useDeleteProduto, useHistoricoPreco, useProdutos, useUpsertProduto } from '@/hooks/useProdutos';
 import { useCategorias } from '@/hooks/useCategorias';
 import { BarcodeInput } from '@/components/BarcodeInput';
@@ -35,18 +35,27 @@ const schema = z.object({
   quantidade: z.coerce.number().refine((n) => n !== 0, 'Quantidade não pode ser zero'),
   localizacao: z.enum(['Loja', 'Deposito', 'Fabrica3D', 'Consignado']),
   custo_unitario: z.coerce.number().nullable().optional(),
+  data_validade: z.string().nullable().optional(),
   observacao: z.string().nullable().optional(),
 });
 type FormInput = z.input<typeof schema>;
 type FormOutput = z.output<typeof schema>;
 
+// Tipos de entrada — únicos em que faz sentido registrar validade dos itens recebidos
+const TIPOS_ENTRADA_VALIDADE: TipoMovimentoForm[] = ['ENTRADA_COMPRA', 'ENTRADA_PRODUCAO'];
+
 export function EstoquePanel() {
   const { data, isLoading } = useEstoqueSaldo();
+  const lotesValidade = useLotesProximosValidade();
   const produtos = useProdutos();
   const categorias = useCategorias();
   const criarProduto = useUpsertProduto();
   const deletarProduto = useDeleteProduto();
   const criar = useCriarMovimento();
+  const criarLote = useCriarMovimentos();
+  const atualizarValidade = useAtualizarValidadeMovimento();
+  const dividirLote = useDividirLoteValidade();
+  const [divisaoLote, setDivisaoLote] = useState<{ id: string; datas: string[] } | null>(null);
   const [search, setSearch] = useState('');
   const [produtoSearch, setProdutoSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -65,7 +74,14 @@ export function EstoquePanel() {
     estoque_minimo: 0,
     status: 'ativo' as ProdutoStatus,
   });
+  const [validadeIndividual, setValidadeIndividual] = useState(false);
+  const [validadesPorUnidade, setValidadesPorUnidade] = useState<string[]>([]);
   const movimentosProduto = useMovimentosEstoque(produtoDetalhe?.produto_id);
+  const movimentosEdicao = useMovimentosEstoque(editProduto?.id);
+  const lotesComValidade = useMemo(
+    () => (movimentosEdicao.data ?? []).filter((m) => Number(m.quantidade) > 0),
+    [movimentosEdicao.data],
+  );
   const historicoPreco = useHistoricoPreco(produtoDetalhe?.produto_id ?? null);
 
   const form = useForm<FormInput, unknown, FormOutput>({
@@ -76,6 +92,7 @@ export function EstoquePanel() {
       quantidade: 0,
       localizacao: 'Loja',
       custo_unitario: null,
+      data_validade: null,
       observacao: '',
     },
   });
@@ -109,6 +126,30 @@ export function EstoquePanel() {
     });
   }, [data]);
 
+  const tipoAtual = form.watch('tipo');
+  const quantidadeAtual = Number(form.watch('quantidade') ?? 0);
+  const permiteValidade = TIPOS_ENTRADA_VALIDADE.includes(tipoAtual);
+  const unidadesInteiras = Number.isInteger(quantidadeAtual) && quantidadeAtual > 1;
+
+  useEffect(() => {
+    if (!validadeIndividual) return;
+    if (!unidadesInteiras) {
+      setValidadeIndividual(false);
+      return;
+    }
+    ajustarQuantidadeValidades(quantidadeAtual);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quantidadeAtual, unidadesInteiras, validadeIndividual]);
+
+  function ajustarQuantidadeValidades(qtd: number) {
+    setValidadesPorUnidade((prev) => {
+      const alvo = Number.isInteger(qtd) && qtd > 0 ? qtd : 0;
+      if (alvo === prev.length) return prev;
+      if (alvo < prev.length) return prev.slice(0, alvo);
+      return [...prev, ...Array(alvo - prev.length).fill('')];
+    });
+  }
+
   async function onSubmit(v: FormOutput) {
     try {
       const tipoInfo = TIPOS.find((t) => t.value === v.tipo);
@@ -118,17 +159,37 @@ export function EstoquePanel() {
       if (tipoInfo?.sign === -1) qtd = -qtd;
       if (v.tipo === 'AJUSTE_INVENTARIO') qtd = v.quantidade;
 
-      await criar.mutateAsync({
-        produto_id: v.produto_id,
-        tipo: v.tipo,
-        quantidade: qtd,
-        localizacao: v.localizacao,
-        custo_unitario: v.custo_unitario ?? null,
-        observacao: v.observacao ?? null,
-      });
+      const usaValidadeIndividual = permiteValidade && validadeIndividual && Number.isInteger(qtd) && qtd > 1;
+
+      if (usaValidadeIndividual) {
+        const linhas = validadesPorUnidade.slice(0, qtd);
+        await criarLote.mutateAsync(
+          Array.from({ length: qtd }, (_, i) => ({
+            produto_id: v.produto_id,
+            tipo: v.tipo,
+            quantidade: 1,
+            localizacao: v.localizacao,
+            custo_unitario: v.custo_unitario ?? null,
+            data_validade: linhas[i] || null,
+            observacao: v.observacao ?? null,
+          })),
+        );
+      } else {
+        await criar.mutateAsync({
+          produto_id: v.produto_id,
+          tipo: v.tipo,
+          quantidade: qtd,
+          localizacao: v.localizacao,
+          custo_unitario: v.custo_unitario ?? null,
+          data_validade: permiteValidade ? (v.data_validade || null) : null,
+          observacao: v.observacao ?? null,
+        });
+      }
       toast.success('Movimento registrado');
       setOpen(false);
       form.reset();
+      setValidadeIndividual(false);
+      setValidadesPorUnidade([]);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -294,6 +355,49 @@ export function EstoquePanel() {
                 {alertas.length > 6 && (
                   <div className="rounded-md border border-dashed border-[var(--royal-line)] bg-background/25 p-3 text-sm text-muted-foreground">
                     mais {alertas.length - 6} produto(s) em alerta
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {(lotesValidade.data?.length ?? 0) > 0 && (
+          <Card className="border-amber-500/35 bg-[linear-gradient(135deg,rgba(217,119,6,0.14),rgba(127,29,29,0.10))]">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-3 text-base">
+                <span className="flex h-9 w-9 items-center justify-center rounded-md border border-amber-500/30 bg-amber-500/10">
+                  <Clock className="h-5 w-5 text-amber-500" />
+                </span>
+                <span>
+                  {lotesValidade.data!.length} lote(s) vencido(s) ou perto da validade
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    Priorize a venda/uso desses itens para evitar perdas.
+                  </span>
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {lotesValidade.data!.slice(0, 6).map((l) => (
+                  <div key={l.id} className="rounded-md border border-[var(--royal-line)] bg-background/45 p-3 text-sm">
+                    <div className="truncate font-medium text-foreground">{l.produto.nome}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{l.localizacao} · qtd {l.quantidade}</span>
+                      <span className={l.vencido ? 'font-semibold text-destructive' : 'font-semibold text-amber-500'}>
+                        {l.vencido
+                          ? `vencido há ${Math.abs(l.dias_restantes)}d`
+                          : l.dias_restantes === 0
+                            ? 'vence hoje'
+                            : `vence em ${l.dias_restantes}d`}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">{formatDate(l.data_validade)}</div>
+                  </div>
+                ))}
+                {lotesValidade.data!.length > 6 && (
+                  <div className="rounded-md border border-dashed border-[var(--royal-line)] bg-background/25 p-3 text-sm text-muted-foreground">
+                    mais {lotesValidade.data!.length - 6} lote(s) em alerta
                   </div>
                 )}
               </div>
@@ -517,14 +621,15 @@ export function EstoquePanel() {
                           <TableHead className="text-right">Qtd</TableHead>
                           <TableHead className="text-right">Custo</TableHead>
                           <TableHead>Local</TableHead>
+                          <TableHead>Validade</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {movimentosProduto.isLoading && (
-                          <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Carregando...</TableCell></TableRow>
                         )}
                         {!movimentosProduto.isLoading && (movimentosProduto.data?.length ?? 0) === 0 && (
-                          <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Sem registros</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Sem registros</TableCell></TableRow>
                         )}
                         {movimentosProduto.data?.map((m) => (
                           <TableRow key={m.id}>
@@ -535,6 +640,7 @@ export function EstoquePanel() {
                               {m.custo_unitario == null ? '-' : formatCurrency(Number(m.custo_unitario))}
                             </TableCell>
                             <TableCell>{m.localizacao}</TableCell>
+                            <TableCell>{m.data_validade ? formatDate(m.data_validade) : '—'}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -661,7 +767,7 @@ export function EstoquePanel() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editProduto} onOpenChange={(o) => !o && setEditProduto(null)}>
+      <Dialog open={!!editProduto} onOpenChange={(o) => { if (!o) { setEditProduto(null); setDivisaoLote(null); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Editar produto</DialogTitle>
@@ -751,8 +857,119 @@ export function EstoquePanel() {
               />
             </div>
           </div>
+
+          {editProduto && (
+            <div className="space-y-2 rounded-md border border-[var(--royal-line)] bg-background/45 p-3">
+              <Label className="mb-0">Datas de validade dos lotes em estoque</Label>
+              {movimentosEdicao.isLoading && (
+                <p className="text-sm text-muted-foreground">Carregando lotes...</p>
+              )}
+              {!movimentosEdicao.isLoading && lotesComValidade.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhuma entrada de estoque registrada para este produto.</p>
+              )}
+              {lotesComValidade.length > 0 && (
+                <div className="grid max-h-72 gap-2 overflow-y-auto overflow-x-hidden">
+                  {lotesComValidade.map((m) => {
+                    const qtd = Number(m.quantidade);
+                    const podeDividir = Number.isInteger(qtd) && qtd > 1;
+                    const dividindo = divisaoLote?.id === m.id;
+                    return (
+                      <div key={m.id} className={`space-y-2 rounded-md p-2 ${dividindo ? 'border border-primary/30 bg-primary/5' : ''}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                            {formatDate(m.data_hora)} · qtd {m.quantidade} · {m.localizacao}
+                          </span>
+                          {!dividindo && (
+                            <Input
+                              type="date"
+                              className="w-full max-w-[180px] shrink-0"
+                              defaultValue={m.data_validade ?? ''}
+                              onBlur={(e) => {
+                                const novoValor = e.target.value || null;
+                                if (novoValor === (m.data_validade ?? null)) return;
+                                atualizarValidade.mutate(
+                                  { id: m.id, data_validade: novoValor },
+                                  {
+                                    onSuccess: () => toast.success('Validade atualizada'),
+                                    onError: (err) => toast.error((err as Error).message),
+                                  },
+                                );
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        {podeDividir && !dividindo && (
+                          <button
+                            type="button"
+                            className="text-xs text-primary underline underline-offset-2"
+                            onClick={() =>
+                              setDivisaoLote({
+                                id: m.id,
+                                datas: Array.from({ length: qtd }, (_, i) => (i === 0 ? m.data_validade ?? '' : '')),
+                              })
+                            }
+                          >
+                            Definir validade individual para as {qtd} unidades deste lote
+                          </button>
+                        )}
+
+                        {dividindo && (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-1 gap-2">
+                              {divisaoLote!.datas.map((val, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <span className="w-16 shrink-0 text-xs text-muted-foreground">Unid. {idx + 1}</span>
+                                  <Input
+                                    type="date"
+                                    className="min-w-0 flex-1"
+                                    value={val}
+                                    onChange={(e) => {
+                                      const novoValor = e.target.value;
+                                      setDivisaoLote((prev) =>
+                                        prev ? { ...prev, datas: prev.datas.map((d, i) => (i === idx ? novoValor : d)) } : prev,
+                                      );
+                                    }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={() => setDivisaoLote(null)}>
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={dividirLote.isPending}
+                                onClick={() => {
+                                  dividirLote.mutate(
+                                    { movimento: m, datas: divisaoLote!.datas.map((d) => d || null) },
+                                    {
+                                      onSuccess: () => {
+                                        toast.success('Lote dividido em unidades individuais');
+                                        setDivisaoLote(null);
+                                      },
+                                      onError: (err) => toast.error((err as Error).message),
+                                    },
+                                  );
+                                }}
+                              >
+                                Salvar divisão
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEditProduto(null)}>Cancelar</Button>
+            <Button type="button" variant="outline" onClick={() => { setEditProduto(null); setDivisaoLote(null); }}>Cancelar</Button>
             <Button type="button" onClick={salvarEdicao} disabled={criarProduto.isPending}>
               Salvar alterações
             </Button>
@@ -852,14 +1069,81 @@ export function EstoquePanel() {
               <Input type="number" step="0.01" {...form.register('custo_unitario')} />
             </div>
 
+            {permiteValidade && (
+              <div className="space-y-3 col-span-2 rounded-md border border-[var(--royal-line)] bg-background/45 p-3">
+                <Label className="mb-0">Data de validade</Label>
+
+                {unidadesInteiras && (
+                  <div className="flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/5 p-2.5 text-sm sm:flex-row sm:items-center sm:gap-4">
+                    <span className="text-xs font-medium text-primary">
+                      {quantidadeAtual} unidades — quer datas de validade diferentes para cada uma?
+                    </span>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="radio"
+                          name="modo_validade"
+                          checked={!validadeIndividual}
+                          onChange={() => setValidadeIndividual(false)}
+                        />
+                        Mesma data p/ todas
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="radio"
+                          name="modo_validade"
+                          checked={validadeIndividual}
+                          onChange={() => {
+                            setValidadeIndividual(true);
+                            ajustarQuantidadeValidades(quantidadeAtual);
+                          }}
+                        />
+                        Data individual por unidade
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {!(unidadesInteiras && validadeIndividual) ? (
+                  <Input type="date" {...form.register('data_validade')} />
+                ) : (
+                  <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+                    {validadesPorUnidade.map((val, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="w-16 shrink-0 text-xs text-muted-foreground">Unid. {idx + 1}</span>
+                        <Input
+                          type="date"
+                          value={val}
+                          onChange={(e) => {
+                            const novoValor = e.target.value;
+                            setValidadesPorUnidade((prev) => prev.map((v, i) => (i === idx ? novoValor : v)));
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2 col-span-2">
               <Label>Observação</Label>
               <Textarea {...form.register('observacao')} placeholder="Motivo, NF, contagem, etc." />
             </div>
 
             <DialogFooter className="col-span-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={criar.isPending}>Registrar</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setOpen(false);
+                  setValidadeIndividual(false);
+                  setValidadesPorUnidade([]);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={criar.isPending || criarLote.isPending}>Registrar</Button>
             </DialogFooter>
           </form>
         </DialogContent>
