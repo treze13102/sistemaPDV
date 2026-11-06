@@ -1,7 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { carregarLotesValidade } from '@/lib/relatorioValidade';
 
 const KEY = ['relatorios'];
+
+/**
+ * Lotes com validade, do mais próximo de vencer ao mais distante.
+ * Usa a mesma carga da versão impressa, para a tela e o papel nunca divergirem.
+ */
+export function useRelatorioValidade() {
+  return useQuery({
+    queryKey: [...KEY, 'validade'],
+    queryFn: carregarLotesValidade,
+  });
+}
 
 export interface RangeFiltro {
   inicio: string; // YYYY-MM-DD
