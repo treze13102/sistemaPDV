@@ -66,6 +66,12 @@ Este app é a **migração do sistema Royal** (`../../14 - ROYAL`, React + TS + 
 - **Variações no Vender e em Compras**: produtos carregam `variations`; ao tocar num produto com variações abre a escolha; código de barras/SKU da variação adiciona direto; item do carrinho é `produto|variação`, preço = preço + `preco_adicional`; `variacao_id` vai para `finalizar_venda` e para o RPC de compras. Histórico mostra "Produto — Variação".
 - **Imagens**: 0 de 1069 produtos têm `imagem_url`; não há bucket no Storage. Open Beauty/Food Facts não cobrem os itens (0 de 40 na amostra). Próximo passo depende do usuário (ver abaixo).
 
+### Rodada de 16/11/2026 (feito)
+- **Repositório**: o app novo substituiu o Royal no `treze13102/sistemaPDV` (pasta `14 - ROYAL`), publicado pela Vercel (`vercel.json` → `npm run build`, saída `dist`). O último Royal antigo ficou no commit `0f02f5b`. **Trabalhar nesta pasta**; `22 - KYTE DESIGN SYSTEM/app` é cópia antiga e não vai para o site.
+- Menu: logo da loja em branco no topo (canvas → PNG transparente em `Shell.jsx`); removida a divisória `.rail__top::after` que cortava a logo.
+- Desconto em R$ ou % no carrinho; histórico de preços (Estoque e cadastro); leitor de código com Enter no Novo movimento e em Compras; barras de filtro e campos lado a lado alinhados.
+- **Validade no cadastro do produto**: campo opcional gravado em `movimentos_estoque.data_validade` no lote que entra (estoque inicial ou aumento pelo cadastro, `AJUSTE_INVENTARIO` positivo), lido pelo relatório de validade. Sem aumento de estoque o formulário avisa. Verificado por build; tela não testada logada nesta porta.
+
 ### Próximos passos (em ordem)
 1. **Ativar Compras** — usuário executa `20261115000002_compras_transacionais.sql`.
 2. **Definir administrador** — usuário marca o próprio usuário com perfil Administrador em Usuários.
