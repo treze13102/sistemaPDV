@@ -486,6 +486,7 @@ export function ProductForm({ id }) {
               <Field label="Estoque atual" legend value={String(v.stock)} inputMode="decimal" onChange={(x) => set("stock", x.replace(/[^\d.,-]/g, "").replace(",", "."))} />
               <Field label="Estoque mínimo" legend value={String(v.minStock)} inputMode="numeric" onChange={(x) => set("minStock", x.replace(/\D/g, ""))} />
             </div>
+            <div className="pform__gap" />
             <Field label="Validade das unidades que entram (opcional)" legend type="date" value={v.expiry || ""} onChange={(x) => set("expiry", x)} error={errors.expiry} />
             <p className="pform__note">
               {existing

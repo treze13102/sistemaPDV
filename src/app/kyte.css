@@ -797,3 +797,4 @@ div.icard__row { cursor: default; }
 /* Logo branca com fundo transparente, gerada em Shell.jsx (useLogoBranca). */
 .shell.is-open .rail__top { height: 84px; }
 .rail__logo { display: block; height: 52px; max-width: 170px; object-fit: contain; }
+.pform__gap { height: 16px; }
