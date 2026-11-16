@@ -57,15 +57,7 @@ body { background: #f7f7f8; color: #363f4d; }
   padding: 0 24px;
   margin-bottom: 21px;
 }
-.shell.is-open .rail__top::after {
-  content: "";
-  position: absolute;
-  left: 24px;
-  right: 24px;
-  top: 61px;
-  height: 1px;
-  background: var(--k-rail-active);
-}
+/* Sem divisória sob o topo: com a logo, a linha fixa em 61px cortava o nome "MONT ROYAL". */
 .rail__burger, .rail__collapse {
   display: grid;
   place-items: center;
