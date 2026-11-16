@@ -1,0 +1,128 @@
+/*
+ * Design tokens — taken from the original's capture (capture.json "design")
+ * and from the colour palette object inside its JavaScript bundle.
+ * Every component in this project reads its values from here.
+ */
+:root {
+  /* ---------- Brand / primary (green) ---------- */
+  --c-green-00: #2fae94;
+  --c-green-01: #25bf97;
+  --c-green-02: #2fc79f;
+  --c-primary: #2dd1ac;          /* green03 – main brand colour */
+  --c-green-04: #5bd7bb;
+  --c-green-05: #8cd7c6;
+  --c-green-06: #ddf7f2;
+  --c-green-07: #e3f6f1;
+  --c-primary-dark: #1f8f75;
+  --c-primary-ultra-light: #eefbf8;
+  --c-success-text: #2dd2ad;
+  --c-success-ultra-light: #d5f6ee;
+
+  /* ---------- Neutrals (gray scale) ---------- */
+  --c-gray-01: #2a323f;
+  --c-text: #363f4d;             /* gray02 – main text */
+  --c-gray-03: #444e5e;
+  --c-text-secondary: #535d6e;   /* gray04 – secondary text, icons */
+  --c-gray-05: #808c9e;
+  --c-gray-06: #a9b1be;
+  --c-gray-07: #d9dce2;
+  --c-gray-08: #e8e9ea;          /* dividers */
+  --c-gray-09: #eff1f3;          /* chips, help pill, upload area */
+  --c-gray-10: #f7f7f8;          /* page background, secondary buttons */
+  --c-white: #ffffff;
+  --c-border: #f2f3f6;
+
+  /* ---------- Feedback ---------- */
+  --c-alert: #f5a623;
+  --c-alert-light: #fdebce;
+  --c-error: #fe0000;
+  --c-error-dark: #983939;
+  --c-red: #ff4e4e;
+  --c-red-light: #ffd5d5;
+  --c-info: #0e65f1;
+  --c-link: #4286f4;
+
+  /* ---------- Accents (catalog themes) ---------- */
+  --c-theme-0: #fdca40;
+  --c-theme-1: #ff8552;
+  --c-theme-2: #ff4e4e;
+  --c-theme-3: #ce7da5;
+  --c-theme-4: #89bbfe;
+  --c-theme-5: #0d3b66;
+  --c-theme-6: #444e5e;
+  --c-theme-7: #2d2d2a;
+  --c-theme-8: #82d173;
+
+  /* ---------- Typography ---------- */
+  /* Original family: Graphik (commercial, used when installed/licensed).
+     Inter (open licence, bundled) stands in with real 500/600 weights,
+     then the original's own fallbacks. */
+  --font-sans: "Graphik", "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fs-12: 0.75rem;   /* 12px – help pill, captions */
+  --fs-14: 0.875rem;  /* 14px – body, labels, buttons */
+  --fs-15: 0.9375rem; /* 15px */
+  --fs-16: 1rem;      /* 16px – subtitles, inputs */
+  --fs-24: 1.5rem;    /* 24px – mobile hero title */
+  --fs-36: 2.25rem;   /* 36px – desktop hero title */
+
+  /* ---------- Spacing scale (most-used first in the capture) ---------- */
+  --sp-2: 2px;
+  --sp-3: 3px;
+  --sp-5: 5px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-14: 14px;
+  --sp-15: 15px;
+  --sp-16: 16px;
+  --sp-24: 24px;
+  --sp-30: 30px;
+  --sp-32: 32px;
+  --sp-36: 36px;
+  --sp-40: 40px;
+  --sp-48: 48px;
+  --sp-90: 90px;
+  --sp-110: 110px;
+
+  /* ---------- Radii ---------- */
+  --r-5: 5px;      /* logo tile */
+  --r-6: 6px;      /* buttons */
+  --r-8: 8px;      /* pills, mobile card, inputs */
+  --r-12: 12px;    /* desktop card */
+  --r-round: 50%;  /* dots, avatars */
+
+  /* ---------- Shadows ---------- */
+  --sh-card: 0 0 40px 0 rgba(54, 63, 77, 0.12);
+  --sh-dot: 1px 1px 2px 0 rgba(0, 0, 0, 0.9);
+  --sh-pop: 0 4px 16px rgba(21, 24, 30, 0.12);
+
+  /* ---------- Content widths ---------- */
+  --w-card: 375px;        /* sign-in card (desktop) */
+  --w-card-mobile: 350px; /* sign-in card (mobile) */
+  --w-mobile-panel: 380px;
+  --w-section: 420px;     /* settings form sections */
+
+  /* ---------- Motion ---------- */
+  --t-fast: 0.25s ease-in;
+  --t-slide: 350ms ease-in-out;
+}
+
+/* Root font scaling, exactly as the original's CSS does it. */
+html { font-size: 100%; }
+@media screen and (max-width: 1239px) { html { font-size: 90%; } }
+@media screen and (min-width: 1500px) { html { font-size: 110%; } }
+
+html, body { margin: 0; padding: 0; }
+body {
+  background-color: var(--c-gray-10);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+*, *::before, *::after { box-sizing: border-box; }
+a { text-decoration: none; }
+button { font-family: inherit; }

@@ -1,0 +1,230 @@
+/* Sign-in screen. Desktop values first; the phone layout switches at 768px,
+   exactly where the original's JavaScript switches (its tablet breakpoint is 769). */
+
+.page {
+  width: 100%;
+  max-width: 1593px;
+  margin: 0 auto;
+  padding: 16px 24px 0;
+  overflow-x: clip;
+}
+@media screen and (min-width: 1240px) { .page { padding: 24px 32px 0; } }
+@media screen and (min-width: 1500px) { .page { padding: 32px 48px 0; } }
+
+.panel {
+  background: var(--c-white);
+  height: 100vh;
+  padding: var(--sp-48) var(--sp-90) 0;
+}
+
+/* ---------- Header ---------- */
+.login-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  height: 48px;
+  margin-bottom: var(--sp-110);
+  position: relative;
+  z-index: 2;
+}
+.login-header__left { display: flex; }
+.login-header__left .help-pill { display: none; }
+.login-header__center { display: none; }
+.login-header__right { display: flex; align-items: flex-start; }
+.login-header__right .help-pill { margin-top: 7px; margin-right: var(--sp-14); }
+
+.lang { position: relative; width: 54px; padding-left: 28px; margin-top: 11px; }
+.lang-control {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.lang-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 150px;
+  margin: 0;
+  padding: var(--sp-5) 0;
+  list-style: none;
+  background: var(--c-white);
+  border-radius: var(--r-8);
+  box-shadow: var(--sh-pop);
+  z-index: 10;
+}
+.lang-menu li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  padding: var(--sp-8) var(--sp-14);
+  font-size: var(--fs-14);
+  cursor: pointer;
+}
+.lang-menu li:hover { background: var(--c-gray-10); }
+.lang-menu li.is-selected { font-weight: var(--fw-medium); }
+
+/* ---------- Body row ---------- */
+.login-row { display: flex; align-items: flex-start; }
+.login-left { flex: 1 1 0; min-width: 0; }
+.login-right { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; }
+
+/* ---------- Carousel ---------- */
+.carousel {
+  position: relative;
+  width: 100%;
+  height: 421px;
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+}
+.carousel__track {
+  display: flex;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  transition: transform var(--t-slide);
+}
+.carousel__slide { min-width: 100%; text-align: left; }
+.hero-title { white-space: pre-line; }
+.hero-title {
+  margin: 0;
+  font-size: var(--fs-36);
+  font-weight: var(--fw-medium);
+  line-height: 1.111em;
+  color: var(--c-text);
+}
+.hero-subtitle {
+  margin: 14px 0 0;
+  font-size: var(--fs-16);
+  font-weight: var(--fw-regular);
+  line-height: 1.19em;
+  color: var(--c-text);
+}
+.carousel-art { display: block; margin-top: 17px; width: 375px; height: 266px; }
+.carousel__dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 1;
+}
+.dot {
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 6px 8px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-round);
+  background: var(--c-white);
+  box-shadow: var(--sh-dot);
+  opacity: 0.3;
+  cursor: pointer;
+  transition: opacity var(--t-fast);
+}
+.dot:hover, .dot.is-selected { opacity: 1; }
+
+/* ---------- Card ---------- */
+.login-card {
+  width: 100%;
+  max-width: var(--w-card);
+  background: var(--c-white);
+  border-radius: var(--r-12);
+  box-shadow: var(--sh-card);
+  padding: 0 var(--sp-36) var(--sp-36);
+}
+.card-title {
+  margin: 0;
+  padding: var(--sp-40) 0;
+  text-align: center;
+  font-size: var(--fs-14);
+  font-weight: var(--fw-medium);
+  line-height: 1.07em;
+}
+.providers { display: flex; flex-direction: column; gap: var(--sp-10); }
+.provider {
+  display: flex;
+  align-items: center;
+  height: 45px;
+  padding: 0 var(--sp-5);
+  border: 1px solid var(--c-gray-10);
+  border-radius: var(--r-6);
+  background: var(--c-gray-10);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: opacity var(--t-fast);
+}
+.provider:hover { opacity: 0.85; }
+.provider__mark { display: flex; margin-left: var(--sp-8); }
+.provider--apple .provider__mark { margin-left: 7px; margin-right: -2px; }
+.provider__label {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+
+.email-form { display: flex; flex-direction: column; gap: var(--sp-16); padding-top: var(--sp-24); }
+.link-back {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-primary);
+  font-size: var(--fs-16);
+  cursor: pointer;
+}
+
+/* ---------- Phone & small tablet ---------- */
+@media screen and (max-width: 768px) {
+  .panel {
+    width: var(--w-mobile-panel);
+    padding: 25px var(--sp-16) var(--sp-16);
+  }
+  .login-header { height: 46px; margin-bottom: 33px; align-items: center; }
+  .login-header__left .logo-tile { display: none; }
+  .login-header__left .help-pill { display: inline-flex; }
+  .login-header__center {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 7px;
+    transform: translateX(-50%);
+  }
+  .login-header__right .help-pill { display: none; }
+  .lang { width: 40px; padding-left: 14px; margin-top: 8px; align-self: flex-start; }
+
+  .login-row { display: block; }
+  .carousel { height: 145px; }
+  .carousel__slide { text-align: center; }
+  .hero-title { font-size: var(--fs-24); line-height: 1.16em; }
+  .hero-subtitle { font-size: var(--fs-14); margin-top: 13px; }
+  .carousel-art { display: none; }
+
+  .login-right { display: block; margin-top: 36px; }
+  .login-card {
+    max-width: var(--w-card-mobile);
+    background: var(--c-gray-10);
+    border-radius: var(--r-8);
+    box-shadow: none;
+    padding: 0 var(--sp-16) 26px;
+  }
+  .card-title { padding: var(--sp-16) 0; }
+  .provider { background: var(--c-white); }
+  .email-form { padding-top: var(--sp-16); }
+}
+@media screen and (max-width: 389px) {
+  .panel { width: calc(100vw - 24px); }
+}

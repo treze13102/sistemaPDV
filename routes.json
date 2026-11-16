@@ -1,0 +1,27 @@
+{
+  "comment": "Every logged-in address of the original app (from its router). Each gets its own static index.html that loads the shared app.",
+  "appRoutes": [
+    "checkout",
+    "orders",
+    "products",
+    "products/create",
+    "catalog",
+    "customers",
+    "customers/create",
+    "suppliers",
+    "purchases",
+    "stock",
+    "reports",
+    "sales",
+    "finances",
+    "finances/payables",
+    "finances/expenses",
+    "finances/receivables",
+    "calendar",
+    "analytics",
+    "users",
+    "config/general",
+    "config/receipt",
+    "config/payments"
+  ]
+}

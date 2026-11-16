@@ -1,0 +1,14 @@
+.supplier-form { display: flex; flex-direction: column; gap: 20px; }
+.shell:not(.is-open) a[href="/suppliers/"] .rail__label { font-size: 10px; }
+.supplier-form .two > * { min-width: 0; }
+.supplier-note { margin: -8px 0 0; color: #808c9e; font-size: 12px; line-height: 1.6; }
+.supplier-delete { align-self: flex-start; color: #c53434; margin-top: 8px; }
+.supplier-error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.supplier-error > span { flex: 1 1 220px; }
+.supplier-row.ktable__head, .supplier-row.ktable__row { grid-template-columns: minmax(180px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr) minmax(160px, 1.4fr) 20px; min-width: 760px; }
+.supplier-row > span:first-child { display: flex; flex-direction: column; gap: 4px; }
+.supplier-row strong { font-size: 13px; font-weight: 500; }
+.supplier-row small { color: #808c9e; font-size: 11px; }
+.page--suppliers .sp__footer { flex-wrap: wrap; }
+.page--suppliers .sp__footer .kbtn { min-width: 0; }
+@media screen and (max-width: 480px) { .supplier-form .two { grid-template-columns: minmax(0, 1fr); } .page--suppliers .modal__actions { flex-wrap: wrap; } }

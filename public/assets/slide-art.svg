@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 375 266" width="375" height="266">
+  <rect x="18" y="187" width="304" height="5" rx="2.5" fill="#e8e9ea"/>
+  <g fill="#fff" stroke="#444e5e" stroke-width="3">
+    <rect x="40" y="104" width="70" height="12"/>
+    <rect x="44" y="116" width="62" height="70"/>
+    <rect x="135" y="104" width="70" height="12"/>
+    <rect x="139" y="116" width="62" height="70"/>
+  </g>
+  <g fill="none" stroke="#444e5e" stroke-width="2.5">
+    <rect x="60" y="133" width="28" height="7" rx="3.5"/>
+    <rect x="155" y="133" width="28" height="7" rx="3.5"/>
+  </g>
+  <path d="M86 172h12M181 172h12" stroke="#2dd1ac" stroke-width="2.5"/>
+  <g transform="rotate(4 265 120)">
+    <rect x="232" y="64" width="72" height="12" fill="#fff" stroke="#444e5e" stroke-width="3"/>
+    <rect x="235" y="76" width="64" height="58" fill="#fff" stroke="#444e5e" stroke-width="3"/>
+    <rect x="250" y="90" width="28" height="7" rx="3.5" fill="none" stroke="#444e5e" stroke-width="2.5"/>
+    <path d="M276 118h12" stroke="#2dd1ac" stroke-width="2.5"/>
+  </g>
+  <path d="M297 96c10 3 18 10 24 14 12 2 24 2 36 3v24c-14-1-30-1-44-3-6-2-12-6-17-9" fill="#e8e9ea" stroke="#444e5e" stroke-width="2.5"/>
+  <rect x="282" y="106" width="10" height="10" rx="3" fill="#fff" stroke="#444e5e" stroke-width="2"/>
+</svg>
