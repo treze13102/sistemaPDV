@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { buscarTodos } from '@/lib/buscarTodos';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
 import { formatCurrency } from '@/lib/utils';
 
@@ -29,22 +30,26 @@ function escape(s: string | null | undefined): string {
 }
 
 async function carregarLinhas(): Promise<LinhaRel[]> {
-  const [prodRes, saldoRes] = await Promise.all([
-    supabase
-      .from('produtos')
-      .select('id, nome, sku, custo_aquisicao, preco_venda_padrao, estoque_minimo, status, categoria:categorias(nome)')
-      .order('nome'),
-    supabase.from('v_estoque_saldo').select('produto_id, saldo'),
+  // Paginado — o corte de 1000 linhas do Supabase deixava o relatório incompleto.
+  const [prods, saldos] = await Promise.all([
+    buscarTodos(() =>
+      supabase
+        .from('produtos')
+        .select('id, nome, sku, custo_aquisicao, preco_venda_padrao, estoque_minimo, status, categoria:categorias(nome)')
+        .order('nome')
+        .order('id'),
+    ),
+    buscarTodos(() =>
+      supabase.from('v_estoque_saldo').select('produto_id, saldo').order('produto_id').order('localizacao'),
+    ),
   ]);
-  if (prodRes.error) throw prodRes.error;
-  if (saldoRes.error) throw saldoRes.error;
 
   const saldoPorProduto = new Map<string, number>();
-  for (const s of saldoRes.data ?? []) {
+  for (const s of saldos) {
     saldoPorProduto.set(s.produto_id, (saldoPorProduto.get(s.produto_id) ?? 0) + Number(s.saldo ?? 0));
   }
 
-  return ((prodRes.data ?? []) as unknown as ProdutoRel[]).map((p) => {
+  return (prods as unknown as ProdutoRel[]).map((p) => {
     const saldo = saldoPorProduto.get(p.id) ?? 0;
     const minimo = Number(p.estoque_minimo ?? 0);
     return {

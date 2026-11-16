@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { construirRecebiveis, isoDate, type BandeiraCartao } from '@/lib/recebiveis';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
+import { buscarTodos } from '@/lib/buscarTodos';
 import type { FormaPagamento, ParcelaFinanceira, ParcelaStatus } from '@/types/database';
 
 const KEY = ['fluxo-caixa'];
@@ -20,6 +21,7 @@ export interface LancamentoAgenda {
   numero_parcela: number | null;
   total_parcelas: number | null;
   cliente_nome: string | null;
+  fornecedor_nome?: string | null;
 }
 
 export interface DiaAgenda {
@@ -38,16 +40,18 @@ export function useAgendaFinanceira(inicio: string, fim: string) {
   return useQuery({
     queryKey: [...KEY, 'agenda', inicio, fim],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('parcelas_financeiras')
-        .select('*, cliente:clientes(id,nome)')
-        .gte('data_vencimento', inicio)
-        .lte('data_vencimento', fim)
-        .neq('status', 'CANCELADA')
-        .order('data_vencimento', { ascending: true });
-      if (error) throw error;
+      const data = await buscarTodos(() =>
+        supabase
+          .from('parcelas_financeiras')
+          .select('*, cliente:clientes(id,nome), fornecedor:fornecedores(id,razao_social)')
+          .gte('data_vencimento', inicio)
+          .lte('data_vencimento', fim)
+          .neq('status', 'CANCELADA')
+          .order('data_vencimento', { ascending: true })
+          .order('id'),
+      );
 
-      const linhas = (data ?? []) as (ParcelaFinanceira & { cliente: { id: string; nome: string } | null })[];
+      const linhas = (data ?? []) as (ParcelaFinanceira & { cliente: { id: string; nome: string } | null; fornecedor: { id: string; razao_social: string } | null })[];
       const porDia = new Map<string, DiaAgenda>();
 
       for (const p of linhas) {
@@ -75,6 +79,7 @@ export function useAgendaFinanceira(inicio: string, fim: string) {
           numero_parcela: p.numero_parcela ?? null,
           total_parcelas: p.total_parcelas ?? null,
           cliente_nome: p.cliente?.nome ?? null,
+          fornecedor_nome: p.fornecedor?.razao_social ?? null,
         });
         porDia.set(p.data_vencimento, dia);
       }
@@ -117,16 +122,15 @@ export function useProjecaoRecebiveis(meses = 12) {
       const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
       const fim = new Date(hoje.getFullYear(), hoje.getMonth() + meses, 0);
 
-      const { data, error } = await supabase
-        .from('parcelas_financeiras')
-        .select('tipo, valor, valor_pago, status, data_vencimento, forma_pagamento')
-        .in('status', STATUS_EM_ABERTO)
-        .gte('data_vencimento', isoDate(inicio))
-        .lte('data_vencimento', isoDate(fim))
-        .limit(5000);
-      if (error) throw error;
-
-      const linhas = data ?? [];
+      const linhas = await buscarTodos(() =>
+        supabase
+          .from('parcelas_financeiras')
+          .select('tipo, valor, valor_pago, status, data_vencimento, forma_pagamento')
+          .in('status', STATUS_EM_ABERTO)
+          .gte('data_vencimento', isoDate(inicio))
+          .lte('data_vencimento', isoDate(fim))
+          .order('id'),
+      );
       const hojeIso = isoDate(hoje);
       const saldoDe = (p: { valor: number; valor_pago: number }) =>
         Math.max(Number(p.valor) - Number(p.valor_pago ?? 0), 0);
@@ -240,34 +244,42 @@ export function useResumoFinanceiro(mesesProjecao = 6) {
       const fimMesIso = isoDate(fimMes);
       const hojeIso = isoDate(hoje);
 
-      const [vendasRes, parcelasRes, itensRes] = await Promise.all([
-        supabase
-          .from('vendas')
-          .select('id, total_liquido')
-          .eq('status', 'CONCLUIDA')
-          .gte('data_hora', inicioMes.toISOString())
-          .lte('data_hora', `${fimMesIso}T23:59:59`),
+      // Tudo paginado: `.limit(5000)` não adiantava, o Supabase devolve no
+      // máximo 1000 linhas e o dashboard passaria a sub-contar sem avisar.
+      const [vendasMes, parcelas, itensMes] = await Promise.all([
+        buscarTodos(() =>
+          supabase
+            .from('vendas')
+            .select('id, total_liquido')
+            .eq('status', 'CONCLUIDA')
+            .gte('data_hora', inicioMes.toISOString())
+            .lte('data_hora', `${fimMesIso}T23:59:59`)
+            .order('id'),
+        ),
         // Todas as parcelas relevantes: em aberto (qualquer data) + baixadas no mês
-        supabase
-          .from('parcelas_financeiras')
-          .select('id, tipo, origem_id, origem_tipo, valor, valor_bruto, taxa_valor, valor_pago, status, data_vencimento, data_pagamento')
-          .neq('status', 'CANCELADA')
-          .limit(5000),
-        supabase
-          .from('itens_venda')
-          .select('venda_id, quantidade, produto:produtos(custo_aquisicao)')
-          .limit(5000),
+        buscarTodos(() =>
+          supabase
+            .from('parcelas_financeiras')
+            .select('id, tipo, origem_id, origem_tipo, valor, valor_bruto, taxa_valor, valor_pago, status, data_vencimento, data_pagamento')
+            .neq('status', 'CANCELADA')
+            .order('id'),
+        ),
+        // Só os itens das vendas do mês (antes vinha o histórico inteiro e filtrava no cliente).
+        buscarTodos(() =>
+          supabase
+            .from('itens_venda')
+            .select('venda_id, quantidade, produto:produtos(custo_aquisicao), venda:vendas!inner(status, data_hora)')
+            .eq('venda.status', 'CONCLUIDA')
+            .gte('venda.data_hora', inicioMes.toISOString())
+            .lte('venda.data_hora', `${fimMesIso}T23:59:59`)
+            .order('id'),
+        ),
       ]);
-      if (vendasRes.error) throw vendasRes.error;
-      if (parcelasRes.error) throw parcelasRes.error;
-      if (itensRes.error) throw itensRes.error;
 
-      const vendasMes = vendasRes.data ?? [];
       const idsVendasMes = new Set(vendasMes.map((v) => v.id));
       const faturamentoMes = vendasMes.reduce((s, v) => s + Number(v.total_liquido ?? 0), 0);
       const vendasCount = vendasMes.length;
 
-      const parcelas = parcelasRes.data ?? [];
       const receber = parcelas.filter((p) => p.tipo === 'RECEBER');
       const pagar = parcelas.filter((p) => p.tipo === 'PAGAR');
       const saldoDe = (p: { valor: number; valor_pago: number }) =>
@@ -307,7 +319,7 @@ export function useResumoFinanceiro(mesesProjecao = 6) {
       const faturamentoProjetadoMes = recebidoMes + aReceberAteFimDoMes;
 
       // CMV do mês pelos itens das vendas do mês.
-      const cmvMes = (itensRes.data ?? [])
+      const cmvMes = itensMes
         .filter((i) => idsVendasMes.has(i.venda_id))
         .reduce((s, i) => {
           const prod = Array.isArray(i.produto) ? i.produto[0] : i.produto;

@@ -1,21 +1,46 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getUsuarioAtualId } from '@/lib/usuarioAtual';
+import { buscarTodos } from '@/lib/buscarTodos';
 import type { Produto } from '@/types/database';
 
 const KEY = ['produtos'];
+
+/**
+ * Monta o filtro de busca do PostgREST cobrindo nome, código e descrições.
+ *
+ * O `.or()` separa condições por vírgula e agrupa com parênteses — esses
+ * caracteres no termo digitado quebram a query. Removemos antes de montar.
+ * Retorna null quando não sobra nada pesquisável.
+ */
+function filtroBuscaProduto(search: string): string | null {
+  const termo = search.replace(/[(),]/g, ' ').trim();
+  if (!termo) return null;
+  return [
+    `nome.ilike.%${termo}%`,
+    `sku.ilike.%${termo}%`,
+    `codigo_barras.ilike.%${termo}%`,
+    `descricao_curta.ilike.%${termo}%`,
+    `descricao_detalhada.ilike.%${termo}%`,
+  ].join(',');
+}
 
 export function useProdutos(search?: string) {
   return useQuery({
     queryKey: [...KEY, search ?? ''],
     queryFn: async () => {
-      let q = supabase
-        .from('produtos')
-        .select('*, categoria:categorias(id,nome), fornecedor:fornecedores(id,razao_social)')
-        .order('nome');
-      if (search) q = q.or(`nome.ilike.%${search}%,sku.ilike.%${search}%,codigo_barras.ilike.%${search}%`);
-      const { data, error } = await q;
-      if (error) throw error;
+      const filtro = search ? filtroBuscaProduto(search) : null;
+      // Paginado: a lista completa alimenta o autocomplete do estoque, e o
+      // corte de 1000 linhas do Supabase escondia produtos do fim do alfabeto.
+      const data = await buscarTodos(() => {
+        let q = supabase
+          .from('produtos')
+          .select('*, categoria:categorias(id,nome), fornecedor:fornecedores(id,razao_social)')
+          .order('nome')
+          .order('id');
+        if (filtro) q = q.or(filtro);
+        return q;
+      });
       return data as (Produto & {
         categoria: { id: string; nome: string } | null;
         fornecedor: { id: string; razao_social: string } | null;
@@ -29,14 +54,17 @@ export function useProdutosComVariacoes(search?: string) {
   return useQuery({
     queryKey: [...KEY, 'with-variacoes', search ?? ''],
     queryFn: async () => {
-      let q = supabase
-        .from('produtos')
-        .select('*, variacoes:variacoes_produto(id,nome,sku,codigo_barras,cor,tamanho,fragrancia,voltagem,custo_adicional,preco_adicional)')
-        .eq('status', 'ativo')
-        .order('nome');
-      if (search) q = q.or(`nome.ilike.%${search}%,sku.ilike.%${search}%,codigo_barras.ilike.%${search}%`);
-      const { data, error } = await q;
-      if (error) throw error;
+      const filtro = search ? filtroBuscaProduto(search) : null;
+      const data = await buscarTodos(() => {
+        let q = supabase
+          .from('produtos')
+          .select('*, variacoes:variacoes_produto(id,nome,sku,codigo_barras,cor,tamanho,fragrancia,voltagem,custo_adicional,preco_adicional)')
+          .eq('status', 'ativo')
+          .order('nome')
+          .order('id');
+        if (filtro) q = q.or(filtro);
+        return q;
+      });
       return data as (Produto & {
         variacoes: {
           id: string; nome: string; sku: string | null; codigo_barras: string | null;
@@ -99,7 +127,7 @@ export function useHistoricoPreco(produtoId: string | null) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('historico_preco')
-        .select('*, usuario:usuarios(nome)')
+        .select('*, usuario:usuarios!usuario_id(nome)')
         .eq('produto_id', produtoId!)
         .order('created_at', { ascending: false })
         .limit(50);

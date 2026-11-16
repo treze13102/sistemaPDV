@@ -11,6 +11,7 @@ import { useEditarVenda, useItensVenda, type VendaListagem } from '@/hooks/useVe
 import { useParcelasDaVenda } from '@/hooks/useFluxoCaixa';
 import type { ItemCarrinho, PagamentoCarrinho } from '@/hooks/usePDV';
 import { useProdutos } from '@/hooks/useProdutos';
+import { normalizarBusca } from '@/components/ProdutoAutocomplete';
 import { useClientes, useUpsertCliente } from '@/hooks/useClientes';
 import { BANDEIRAS, gerarPlanoCartao, gerarPlanoCrediario, type BandeiraCartao, type ParcelaPlano } from '@/lib/recebiveis';
 import { formatCurrency } from '@/lib/utils';
@@ -128,13 +129,14 @@ export function EditarVendaDialog({
   const somaPlano = useMemo(() => plano.reduce((s, p) => s + p.valor, 0), [plano]);
 
   const produtosFiltrados = useMemo(() => {
-    const termo = buscaProduto.trim().toLowerCase();
+    const termo = normalizarBusca(buscaProduto);
     if (!termo) return [];
+    // Inclui as descrições e ignora acentos: "cafe" encontra "Café".
     return (produtos.data ?? [])
       .filter((p) =>
-        [p.nome, p.sku, p.codigo_barras]
+        [p.nome, p.sku, p.codigo_barras, p.descricao_curta, p.descricao_detalhada]
           .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(termo)),
+          .some((v) => normalizarBusca(String(v)).includes(termo)),
       )
       .slice(0, 8);
   }, [produtos.data, buscaProduto]);

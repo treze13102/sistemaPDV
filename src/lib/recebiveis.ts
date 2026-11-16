@@ -112,7 +112,8 @@ export interface PagamentoParaPlano {
 export interface RecebivelInsert {
   tipo: 'RECEBER';
   origem_tipo: 'VENDA';
-  origem_id: string;
+  /** null quando a venda ainda vai ser criada — o servidor preenche na transação. */
+  origem_id: string | null;
   descricao: string;
   data_emissao: string;
   data_vencimento: string;
@@ -182,14 +183,45 @@ export function taxaAplicavel(
   return 0; // crediário e fiado são recebidos direto do cliente, sem intermediário
 }
 
+/** Substituído pelo número real da venda dentro da transação no banco. */
+export const NUMERO_PLACEHOLDER = '{numero}';
+
+const FORMAS_COM_PLANO: FormaPagamento[] = ['CARTAO_CREDITO', 'CREDIARIO', 'FIADO'];
+
+/**
+ * Confere se as parcelas de cada pagamento a prazo somam o valor financiado.
+ * Devolve a mensagem de erro, ou null se estiver tudo certo.
+ *
+ * O banco faz a mesma checagem (e é ela que vale), mas conferir aqui avisa
+ * o operador na hora, sem esperar a ida ao servidor.
+ */
+export function conferirPlanos(pagamentos: PagamentoParaPlano[]): string | null {
+  for (const p of pagamentos) {
+    if (!FORMAS_COM_PLANO.includes(p.forma) || !p.plano?.length) continue;
+    const financiado = +(p.valor - (p.entrada ?? 0)).toFixed(2);
+    const soma = +p.plano.reduce((s, x) => s + x.valor, 0).toFixed(2);
+    if (Math.abs(soma - financiado) > 0.01) {
+      const diff = financiado - soma;
+      return `As parcelas somam ${soma.toFixed(2).replace('.', ',')}, mas o valor a parcelar é ${financiado
+        .toFixed(2)
+        .replace('.', ',')} — ${diff > 0 ? 'faltam' : 'sobram'} R$ ${Math.abs(diff).toFixed(2).replace('.', ',')}.`;
+    }
+    if (p.plano.some((x) => !(x.valor > 0))) return 'Todas as parcelas precisam ter valor maior que zero.';
+    if (p.plano.some((x) => !x.data_vencimento)) return 'Todas as parcelas precisam ter data de vencimento.';
+  }
+  return null;
+}
+
 /**
  * Converte as formas de pagamento de uma venda nas parcelas a receber.
  * Fonte única usada tanto ao criar quanto ao editar a venda, para que o
  * fluxo financeiro nunca divirja entre os dois caminhos.
  */
 export function construirRecebiveis(params: {
-  vendaId: string;
-  numeroVenda: number;
+  /** null = venda ainda não existe; a função finalizar_venda preenche. */
+  vendaId: string | null;
+  /** Use NUMERO_PLACEHOLDER quando a venda ainda não tem número. */
+  numeroVenda: number | string;
   clienteId: string | null;
   pagamentos: PagamentoParaPlano[];
   taxas?: TaxasRecebiveis;

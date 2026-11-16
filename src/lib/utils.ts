@@ -12,8 +12,19 @@ export function formatCurrency(value: number): string {
   }).format(value);
 }
 
+/** Detecta 'YYYY-MM-DD' puro (coluna `date`), sem hora nem fuso. */
+const SO_DATA = /^\d{4}-\d{2}-\d{2}$/;
+
 export function formatDate(value: string | Date): string {
-  const d = typeof value === 'string' ? new Date(value) : value;
+  let d: Date;
+  if (typeof value === 'string') {
+    // O JS parseia 'YYYY-MM-DD' como meia-noite UTC. Em fuso negativo (Brasil)
+    // isso exibiria o DIA ANTERIOR — errado para validade, vencimento etc.
+    // Acrescentar a hora força a interpretação no fuso local.
+    d = SO_DATA.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+  } else {
+    d = value;
+  }
   return new Intl.DateTimeFormat('pt-BR').format(d);
 }
 

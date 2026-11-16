@@ -16,17 +16,26 @@ import { useAtualizarValidadeMovimento, useDividirLoteValidade, useEstoqueSaldo,
 import { lookupProdutoByBarcode, useDeleteProduto, useHistoricoPreco, useProdutos, useUpsertProduto } from '@/hooks/useProdutos';
 import { useCategorias } from '@/hooks/useCategorias';
 import { BarcodeInput } from '@/components/BarcodeInput';
+import { normalizarBusca, ProdutoAutocomplete, type ProdutoBusca } from '@/components/ProdutoAutocomplete';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { LocalizacaoEstoque, MovimentoTipo, Produto, ProdutoStatus } from '@/types/database';
 
 type TipoMovimentoForm = Exclude<MovimentoTipo, 'SAIDA_VENDA'>;
 
 const LOCAIS: LocalizacaoEstoque[] = ['Loja', 'Deposito', 'Fabrica3D', 'Consignado'];
-const TIPOS: { value: TipoMovimentoForm; label: string; sign: 1 | -1 }[] = [
-  { value: 'ENTRADA_COMPRA', label: 'Entrada — Compra', sign: 1 },
-  { value: 'ENTRADA_PRODUCAO', label: 'Entrada — Produção', sign: 1 },
-  { value: 'SAIDA_PERDA', label: 'Saída — Perda/Quebra', sign: -1 },
-  { value: 'AJUSTE_INVENTARIO', label: 'Ajuste de Inventário', sign: 1 },
+/**
+ * Convenção de sinal da quantidade (precisa casar com a view v_estoque_saldo):
+ * - ENTRADA_*  → positivo, somado pela view
+ * - SAIDA_*    → positivo, a view é que aplica o sinal negativo
+ * - AJUSTE_INVENTARIO → valor assinado como digitado, somado direto
+ *
+ * Gravar saída negativa dupla-negaria na view e faria uma perda AUMENTAR o saldo.
+ */
+const TIPOS: { value: TipoMovimentoForm; label: string }[] = [
+  { value: 'ENTRADA_COMPRA', label: 'Entrada — Compra' },
+  { value: 'ENTRADA_PRODUCAO', label: 'Entrada — Produção' },
+  { value: 'SAIDA_PERDA', label: 'Saída — Perda/Quebra' },
+  { value: 'AJUSTE_INVENTARIO', label: 'Ajuste de Inventário' },
 ];
 
 const schema = z.object({
@@ -57,7 +66,9 @@ export function EstoquePanel() {
   const dividirLote = useDividirLoteValidade();
   const [divisaoLote, setDivisaoLote] = useState<{ id: string; datas: string[] } | null>(null);
   const [search, setSearch] = useState('');
-  const [produtoSearch, setProdutoSearch] = useState('');
+  // Guardado como objeto (não só o id) para o produto continuar visível mesmo
+  // antes da lista recarregar — é o que faz o recém-cadastrado aparecer na hora.
+  const [produtoSelecionado, setProdutoSelecionado] = useState<ProdutoBusca | null>(null);
   const [open, setOpen] = useState(false);
   const [novoProdutoOpen, setNovoProdutoOpen] = useState(false);
   const [novoProduto, setNovoProduto] = useState({ nome: '', sku: '', custo: 0, preco: 0 });
@@ -99,25 +110,23 @@ export function EstoquePanel() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    if (!search) return data;
-    const s = search.toLowerCase();
-    return data.filter(
-      (l) => l.produto.nome.toLowerCase().includes(s) || (l.produto.sku ?? '').toLowerCase().includes(s)
+    const s = normalizarBusca(search);
+    if (!s) return data;
+    // Mesmo critério do autocomplete: nome, SKU, código de barras e descrição,
+    // sem diferenciar acento. Antes só nome/SKU — buscar pelo código de barras
+    // (o que aparece no PDV) não encontrava nada.
+    return data.filter((l) =>
+      [l.produto.nome, l.produto.sku, l.produto.codigo_barras, l.produto.descricao_curta]
+        .filter(Boolean)
+        .some((v) => normalizarBusca(String(v)).includes(s)),
     );
   }, [data, search]);
 
-  const produtosMovimento = useMemo(() => {
-    const lista = produtos.data ?? [];
-    const termo = produtoSearch.trim().toLowerCase();
-    if (!termo) return lista.slice(0, 25);
-    return lista
-      .filter((p) =>
-        [p.nome, p.sku, p.codigo_barras]
-          .filter(Boolean)
-          .some((valor) => String(valor).toLowerCase().includes(termo)),
-      )
-      .slice(0, 25);
-  }, [produtos.data, produtoSearch]);
+  /** Mantém o objeto e o id do formulário em sincronia. */
+  function selecionarProduto(p: ProdutoBusca | null) {
+    setProdutoSelecionado(p);
+    form.setValue('produto_id', p?.id ?? '', { shouldDirty: true, shouldValidate: true });
+  }
 
   const alertas = useMemo(() => {
     return (data ?? []).filter((l) => {
@@ -152,12 +161,9 @@ export function EstoquePanel() {
 
   async function onSubmit(v: FormOutput) {
     try {
-      const tipoInfo = TIPOS.find((t) => t.value === v.tipo);
-      // Para ajuste, quantidade pode ser positiva (entrada) ou negativa (saída) conforme valor digitado
-      // Para entrada, força positivo; para saída, força negativo
-      let qtd = Math.abs(v.quantidade);
-      if (tipoInfo?.sign === -1) qtd = -qtd;
-      if (v.tipo === 'AJUSTE_INVENTARIO') qtd = v.quantidade;
+      // Entradas e saídas gravam sempre positivo — a view v_estoque_saldo é quem
+      // nega as saídas. Só o ajuste de inventário guarda o sinal digitado.
+      const qtd = v.tipo === 'AJUSTE_INVENTARIO' ? v.quantidade : Math.abs(v.quantidade);
 
       const usaValidadeIndividual = permiteValidade && validadeIndividual && Number.isInteger(qtd) && qtd > 1;
 
@@ -188,6 +194,7 @@ export function EstoquePanel() {
       toast.success('Movimento registrado');
       setOpen(false);
       form.reset();
+      setProdutoSelecionado(null);
       setValidadeIndividual(false);
       setValidadesPorUnidade([]);
     } catch (e) {
@@ -209,8 +216,8 @@ export function EstoquePanel() {
         preco_venda_padrao: novoProduto.preco || 0,
         status: 'ativo',
       });
-      form.setValue('produto_id', criado.id, { shouldDirty: true, shouldValidate: true });
-      setProdutoSearch(criado.nome);
+      // Seleciona o objeto recém-criado: não depende do refetch da lista.
+      selecionarProduto(criado);
       setNovoProduto({ nome: '', sku: '', custo: 0, preco: 0 });
       setNovoProdutoOpen(false);
       toast.success('Produto cadastrado e selecionado');
@@ -408,7 +415,7 @@ export function EstoquePanel() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 max-w-md flex-1">
             <Search className="h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar produto..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input placeholder="Buscar por nome, SKU, código de barras ou descrição..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <Button onClick={() => setOpen(true)}>
             <Plus className="mr-2 h-4 w-4" /> Novo movimento
@@ -985,56 +992,24 @@ export function EstoquePanel() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2 col-span-2">
               <Label>Produto *</Label>
-              <div className="overflow-hidden rounded-md border border-[var(--royal-line)] bg-background/45">
-                <div className="grid sm:grid-cols-[1fr_auto]">
-                  <BarcodeInput
-                    containerClassName="border-b border-[var(--royal-line)] sm:border-b-0 sm:border-r"
-                    className="rounded-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-                    placeholder="Digite nome, SKU ou escaneie o codigo..."
-                    value={produtoSearch}
-                    onChange={setProdutoSearch}
-                    onScan={async (code) => {
-                      setProdutoSearch(code);
-                      try {
-                        const p = await lookupProdutoByBarcode(code);
-                        if (p) {
-                          form.setValue('produto_id', p.id, { shouldDirty: true, shouldValidate: true });
-                          setProdutoSearch(p.nome);
-                          toast.success(`Selecionado: ${p.nome}`);
-                        } else {
-                          toast.error(`Sem produto para "${code}"`);
-                        }
-                      } catch (e) { toast.error((e as Error).message); }
-                    }}
-                    clearOnScan={false}
-                  />
-                  <Button type="button" variant="ghost" className="h-10 rounded-none px-5" onClick={() => setNovoProdutoOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" /> Novo produto
-                  </Button>
-                </div>
-                <Select
-                  value={form.watch('produto_id')}
-                  onValueChange={(v) => {
-                    form.setValue('produto_id', v, { shouldDirty: true, shouldValidate: true });
-                    const selecionado = produtos.data?.find((p) => p.id === v);
-                    if (selecionado) setProdutoSearch(selecionado.nome);
-                  }}
-                >
-                  <SelectTrigger className="rounded-none border-0 border-t border-[var(--royal-line)] bg-transparent focus:ring-0 focus:ring-offset-0">
-                    <SelectValue placeholder="Selecione um produto filtrado..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {produtosMovimento.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">Nenhum produto encontrado</div>
-                    )}
-                    {produtosMovimento.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}{p.sku ? ` (${p.sku})` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <ProdutoAutocomplete
+                produtos={produtos.data ?? []}
+                carregando={produtos.isLoading}
+                selecionado={produtoSelecionado}
+                onSelecionar={selecionarProduto}
+                onCriarNovo={() => setNovoProdutoOpen(true)}
+                onScan={async (code) => {
+                  try {
+                    const p = await lookupProdutoByBarcode(code);
+                    if (p) {
+                      selecionarProduto(p);
+                      toast.success(`Selecionado: ${p.nome}`);
+                    } else {
+                      toast.error(`Sem produto para "${code}"`);
+                    }
+                  } catch (e) { toast.error((e as Error).message); }
+                }}
+              />
               {form.formState.errors.produto_id && <p className="text-sm text-destructive">{form.formState.errors.produto_id.message}</p>}
             </div>
 
@@ -1137,6 +1112,7 @@ export function EstoquePanel() {
                 variant="outline"
                 onClick={() => {
                   setOpen(false);
+                  setProdutoSelecionado(null);
                   setValidadeIndividual(false);
                   setValidadesPorUnidade([]);
                 }}

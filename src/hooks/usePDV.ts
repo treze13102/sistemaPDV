@@ -1,7 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getUsuarioAtualId } from '@/lib/usuarioAtual';
-import { construirRecebiveis, type BandeiraCartao, type ParcelaPlano } from '@/lib/recebiveis';
+import {
+  conferirPlanos,
+  construirRecebiveis,
+  NUMERO_PLACEHOLDER,
+  type BandeiraCartao,
+  type ParcelaPlano,
+} from '@/lib/recebiveis';
+import { traduzirErroRpc } from '@/lib/erroRpc';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
 import type {
   FormaPagamento,
@@ -48,110 +55,72 @@ export function useFinalizarVenda() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: FinalizarVendaInput) => {
-      const total_bruto = input.itens.reduce((s, i) => s + i.quantidade * i.preco_unitario, 0);
-      const desconto_itens = input.itens.reduce((s, i) => s + i.desconto, 0);
-      const desconto_total = desconto_itens + input.desconto_total;
-      const total_liquido = total_bruto - desconto_total;
+      const status: VendaStatus = input.status ?? 'CONCLUIDA';
+      const pagamentos = status === 'CONCLUIDA' ? input.pagamentos : [];
+
+      // Aviso imediato se as parcelas não fecham (o banco confere de novo).
+      const erroPlano = conferirPlanos(pagamentos);
+      if (erroPlano) throw new Error(erroPlano);
+
+      // Recebíveis montados antes da venda existir: id e número são
+      // preenchidos pelo banco dentro da mesma transação.
+      const recebiveis =
+        status === 'CONCLUIDA'
+          ? construirRecebiveis({
+              vendaId: null,
+              numeroVenda: NUMERO_PLACEHOLDER,
+              clienteId: input.cliente_id,
+              pagamentos,
+              taxas: carregarConfiguracoes().recebiveis,
+            })
+          : [];
 
       const usuarioId = await getUsuarioAtualId();
-      const status: VendaStatus = input.status ?? 'CONCLUIDA';
-      const forma_principal = input.pagamentos[0]?.forma ?? null;
-      const entrada_valor = input.pagamentos.reduce((s, p) => s + (p.entrada ?? 0), 0);
 
-      const { data: venda, error: e1 } = await supabase
-        .from('vendas')
-        .insert({
-          usuario_id: usuarioId,
+      // UMA chamada, UMA transação: venda, itens, pagamentos, estoque e
+      // parcelas entram juntos ou nenhum entra. Antes eram 5 chamadas
+      // separadas e uma falha no meio deixava venda órfã gravada.
+      const { data, error } = await supabase.rpc('finalizar_venda', {
+        p_venda: {
           cliente_id: input.cliente_id,
+          usuario_id: usuarioId,
           canal: input.canal,
-          total_bruto,
-          desconto_total,
-          total_liquido,
-          forma_pagamento_principal: forma_principal,
           status,
-          entrada_valor,
+          desconto_extra: input.desconto_total,
           observacao: input.observacao ?? null,
           validade_orcamento: input.validade_orcamento ?? null,
-        })
-        .select('id, numero, data_hora')
-        .single();
-      if (e1) throw e1;
-
-      const vendaId = venda.id;
-
-      // Itens
-      const itensPayload = input.itens.map((i) => ({
-        venda_id: vendaId,
-        produto_id: i.produto_id,
-        variacao_id: i.variacao_id ?? null,
-        quantidade: i.quantidade,
-        preco_unitario: i.preco_unitario,
-        desconto: i.desconto,
-        total: i.quantidade * i.preco_unitario - i.desconto,
-      }));
-      const { error: e2 } = await supabase.from('itens_venda').insert(itensPayload);
-      if (e2) throw e2;
-
-      // Guardado fora do bloco p/ alimentar o carnê/comprovante do crediário.
-      let recebiveisGerados: ParcelaPlano[] = [];
-
-      if (status === 'CONCLUIDA') {
-        // Pagamentos
-        if (input.pagamentos.length) {
-          const pagPayload = input.pagamentos.map((p) => ({
-            venda_id: vendaId,
-            forma: p.forma,
-            valor: p.valor,
-            parcelas: p.parcelas ?? 1,
-            bandeira: p.bandeira ?? null,
-          }));
-          const { error: e3 } = await supabase.from('pagamentos_venda').insert(pagPayload);
-          if (e3) throw e3;
-        }
-
-        // Movimentos estoque
-        const movPayload = input.itens.map((i) => ({
+          localizacao_estoque: input.localizacao_estoque,
+        },
+        p_itens: input.itens.map((i) => ({
           produto_id: i.produto_id,
           variacao_id: i.variacao_id ?? null,
-          tipo: 'SAIDA_VENDA' as const,
           quantidade: i.quantidade,
-          localizacao: input.localizacao_estoque,
-          usuario_id: usuarioId,
-          origem_tipo: 'VENDA',
-          origem_id: vendaId,
-        }));
-        const { error: e4 } = await supabase.from('movimentos_estoque').insert(movPayload);
-        if (e4) throw e4;
+          preco_unitario: i.preco_unitario,
+          desconto: i.desconto,
+        })),
+        p_pagamentos: pagamentos.map((p) => ({
+          forma: p.forma,
+          valor: p.valor,
+          parcelas: p.parcelas ?? 1,
+          bandeira: p.bandeira ?? null,
+          entrada: p.entrada ?? 0,
+        })),
+        p_recebiveis: recebiveis,
+      });
+      if (error) throw traduzirErroRpc(error);
 
-        // Recebíveis: toda forma a prazo vira parcelas RECEBER em aberto.
-        // É isso que alimenta o calendário, a projeção de caixa e o dashboard.
-        const recebiveis = construirRecebiveis({
-          vendaId,
-          numeroVenda: venda.numero as number,
-          clienteId: input.cliente_id,
-          pagamentos: input.pagamentos,
-          taxas: carregarConfiguracoes().recebiveis,
-        });
+      const venda = data as { id: string; numero: number; data_hora: string };
+      const entrada_valor = pagamentos.reduce((s, p) => s + (p.entrada ?? 0), 0);
 
-        if (recebiveis.length > 0) {
-          const { error: e5 } = await supabase.from('parcelas_financeiras').insert(recebiveis);
-          if (e5) throw e5;
-        }
+      // Carnê do cliente mostra o BRUTO (o que ele paga), não o líquido
+      // que sobra para a loja depois da taxa da maquininha.
+      const parcelas: ParcelaPlano[] = recebiveis.map((r) => ({
+        numero: r.numero_parcela,
+        valor: r.valor_bruto,
+        data_vencimento: r.data_vencimento,
+      }));
 
-        recebiveisGerados = recebiveis.map((r) => ({
-          numero: r.numero_parcela,
-          valor: r.valor,
-          data_vencimento: r.data_vencimento,
-        }));
-      }
-
-      return {
-        id: vendaId,
-        numero: venda.numero as number,
-        data_hora: venda.data_hora as string,
-        entrada_valor,
-        parcelas: recebiveisGerados,
-      };
+      return { id: venda.id, numero: venda.numero, data_hora: venda.data_hora, entrada_valor, parcelas };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dashboard'] });

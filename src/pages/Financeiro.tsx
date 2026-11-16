@@ -215,6 +215,7 @@ export default function Financeiro() {
       await baixar.mutateAsync({
         id: baixaTarget.id,
         valor_pago: valorBaixa,
+        valor_pago_anterior: Number(baixaTarget.valor_pago),
         data_pagamento: hoje,
         valor: Number(baixaTarget.valor),
       });

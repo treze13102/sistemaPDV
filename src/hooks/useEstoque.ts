@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { getUsuarioAtualId } from '@/lib/usuarioAtual';
+import { buscarTodos } from '@/lib/buscarTodos';
 import type { LocalizacaoEstoque, MovimentoEstoque, MovimentoTipo, Produto } from '@/types/database';
 
 const KEY_SALDO = ['estoque', 'saldo'];
@@ -13,7 +14,7 @@ export interface SaldoLinha {
   variacao_id: string | null;
   localizacao: LocalizacaoEstoque;
   saldo: number;
-  produto: Pick<Produto, 'id' | 'nome' | 'sku' | 'estoque_minimo' | 'ponto_reposicao' | 'status' | 'imagem_url' | 'custo_aquisicao' | 'preco_venda_padrao'> & {
+  produto: Pick<Produto, 'id' | 'nome' | 'sku' | 'codigo_barras' | 'descricao_curta' | 'estoque_minimo' | 'ponto_reposicao' | 'status' | 'imagem_url' | 'custo_aquisicao' | 'preco_venda_padrao'> & {
     categoria: { nome: string } | null;
     custo_medio_compra: number;
   };
@@ -23,26 +24,32 @@ export function useEstoqueSaldo() {
   return useQuery({
     queryKey: KEY_SALDO,
     queryFn: async () => {
-      // join saldo + produto
-      const { data: prods, error: e1 } = await supabase
-        .from('produtos')
-        .select('id, nome, sku, estoque_minimo, ponto_reposicao, status, imagem_url, custo_aquisicao, preco_venda_padrao, categoria:categorias(nome)')
-        .order('nome');
-      if (e1) throw e1;
-
-      const { data: saldos, error: e2 } = await supabase.from('v_estoque_saldo').select('*');
-      if (e2) throw e2;
-
-      const { data: compras, error: e3 } = await supabase
-        .from('movimentos_estoque')
-        .select('produto_id, quantidade, custo_unitario')
-        .eq('tipo', 'ENTRADA_COMPRA')
-        .gt('quantidade', 0)
-        .not('custo_unitario', 'is', null);
-      if (e3) throw e3;
+      // Paginado: sem isso o Supabase corta em 1000 linhas e produtos do fim
+      // da ordem alfabética somem da tela de estoque.
+      const [prods, saldos, compras] = await Promise.all([
+        buscarTodos(() =>
+          supabase
+            .from('produtos')
+            .select('id, nome, sku, codigo_barras, descricao_curta, estoque_minimo, ponto_reposicao, status, imagem_url, custo_aquisicao, preco_venda_padrao, categoria:categorias(nome)')
+            .order('nome')
+            .order('id'),
+        ),
+        buscarTodos(() =>
+          supabase.from('v_estoque_saldo').select('*').order('produto_id').order('localizacao'),
+        ),
+        buscarTodos(() =>
+          supabase
+            .from('movimentos_estoque')
+            .select('produto_id, quantidade, custo_unitario')
+            .eq('tipo', 'ENTRADA_COMPRA')
+            .gt('quantidade', 0)
+            .not('custo_unitario', 'is', null)
+            .order('id'),
+        ),
+      ]);
 
       const custos = new Map<string, { qtd: number; total: number }>();
-      for (const c of compras ?? []) {
+      for (const c of compras) {
         const qtd = Number(c.quantidade ?? 0);
         const custo = Number(c.custo_unitario ?? 0);
         if (qtd <= 0 || custo <= 0) continue;
@@ -52,8 +59,16 @@ export function useEstoqueSaldo() {
         custos.set(c.produto_id, atual);
       }
 
+      // Índice produto → linhas de saldo (evita varrer a lista toda por produto).
+      const saldosPorProduto = new Map<string, typeof saldos>();
+      for (const s of saldos) {
+        const arr = saldosPorProduto.get(s.produto_id) ?? [];
+        arr.push(s);
+        saldosPorProduto.set(s.produto_id, arr);
+      }
+
       const mapSaldo = new Map<string, SaldoLinha>();
-      for (const raw of prods ?? []) {
+      for (const raw of prods) {
         // PostgREST retorna categoria como array (to-one) — normaliza p/ objeto
         const cat = Array.isArray(raw.categoria) ? raw.categoria[0] ?? null : raw.categoria ?? null;
         const custoCompra = custos.get(raw.id);
@@ -61,7 +76,7 @@ export function useEstoqueSaldo() {
           ? +(custoCompra.total / custoCompra.qtd).toFixed(2)
           : Number(raw.custo_aquisicao ?? 0);
         const p = { ...raw, categoria: cat, custo_medio_compra } as unknown as SaldoLinha['produto'];
-        const linhas = (saldos ?? []).filter((s) => s.produto_id === p.id);
+        const linhas = saldosPorProduto.get(p.id) ?? [];
         if (linhas.length === 0) {
           mapSaldo.set(`${p.id}::Loja`, {
             produto_id: p.id,

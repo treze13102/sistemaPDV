@@ -1,3 +1,4 @@
+import { buscarTodos } from '@/lib/buscarTodos';
 import { supabase } from '@/lib/supabase';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -93,7 +94,7 @@ function classificar(dias: number): FaixaValidade {
  * Compartilhado entre a tela de Relatórios e a versão para impressão.
  */
 export async function carregarLotesValidade(): Promise<ResumoValidade> {
-  const { data, error } = await supabase
+  const data = await buscarTodos(() => supabase
     .from('movimentos_estoque')
     .select(
       'id, produto_id, quantidade, localizacao, data_validade, data_hora, custo_unitario, ' +
@@ -101,9 +102,9 @@ export async function carregarLotesValidade(): Promise<ResumoValidade> {
     )
     .not('data_validade', 'is', null)
     .gt('quantidade', 0)
+    .in('tipo', ['ENTRADA_COMPRA','ENTRADA_PRODUCAO','AJUSTE_INVENTARIO'])
     .order('data_validade', { ascending: true })
-    .limit(2000);
-  if (error) throw error;
+    .order('id')); 
 
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);

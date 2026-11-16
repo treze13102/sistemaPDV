@@ -25,7 +25,14 @@ import {
   type ComprovanteData,
 } from '@/lib/comprovante';
 import { carregarConfiguracoes } from '@/lib/configuracoes';
-import { BANDEIRAS, gerarPlanoCartao, gerarPlanoCrediario, type BandeiraCartao, type ParcelaPlano } from '@/lib/recebiveis';
+import {
+  BANDEIRAS,
+  conferirPlanos,
+  gerarPlanoCartao,
+  gerarPlanoCrediario,
+  type BandeiraCartao,
+  type ParcelaPlano,
+} from '@/lib/recebiveis';
 import type { Produto } from '@/types/database';
 
 interface VariacaoLite {
@@ -253,7 +260,15 @@ export default function PDV() {
       toast.error('Valor inválido');
       return;
     }
-    setPagamentos((p) => [...p, montarPagamento(valor)]);
+    const novo = montarPagamento(valor);
+    // Parcelas editadas à mão que não fecham com o valor: barra aqui, antes de
+    // virar recebível com dinheiro faltando (o banco também confere).
+    const erroPlano = conferirPlanos([novo]);
+    if (erroPlano) {
+      toast.error(erroPlano);
+      return;
+    }
+    setPagamentos((p) => [...p, novo]);
     setValorPag(0);
     setPlanoEditado(null);
   }
@@ -844,6 +859,17 @@ export default function PDV() {
                           {formatCurrency(somaPlano)}
                         </span>
                       </div>
+                      {(() => {
+                        const alvo = ehCrediario ? valorFinanciado : valorEmConfiguracao;
+                        const diff = +(alvo - somaPlano).toFixed(2);
+                        if (Math.abs(diff) <= 0.01) return null;
+                        return (
+                          <p className="rounded border border-orange-500/40 bg-orange-500/10 p-2 text-xs text-orange-400">
+                            {diff > 0 ? 'Faltam' : 'Sobram'} {formatCurrency(Math.abs(diff))} para fechar{' '}
+                            {formatCurrency(alvo)}. Ajuste as parcelas ou clique em “restaurar automático”.
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

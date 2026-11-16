@@ -175,7 +175,7 @@ export function salvarConfiguracoes(config: ConfiguracoesSistema): void {
   window.dispatchEvent(new CustomEvent(CONFIG_EVENT, { detail: config }));
 }
 
-export async function carregarConfiguracoesSupabase(): Promise<ConfiguracoesSistema> {
+export async function carregarConfiguracoesSupabase(strict = false): Promise<ConfiguracoesSistema> {
   const local = carregarConfiguracoes();
   const { data, error } = await supabase
     .from('configuracoes_sistema')
@@ -184,6 +184,7 @@ export async function carregarConfiguracoesSupabase(): Promise<ConfiguracoesSist
     .maybeSingle();
 
   if (error) {
+    if (strict) throw new Error('Não foi possível carregar as configurações salvas da loja. ' + error.message);
     console.warn('Nao foi possivel carregar configuracoes do Supabase. Usando cache local.', error);
     return local;
   }
@@ -196,12 +197,12 @@ export async function carregarConfiguracoesSupabase(): Promise<ConfiguracoesSist
 }
 
 export async function salvarConfiguracoesSupabase(config: ConfiguracoesSistema): Promise<void> {
-  salvarConfiguracoes(config);
   const { error } = await supabase
     .from('configuracoes_sistema')
     .upsert({ chave: CONFIG_DB_KEY, valor: config }, { onConflict: 'chave' });
 
   if (error) throw error;
+  salvarConfiguracoes(config);
 }
 
 export function restaurarConfiguracoesPadrao(): ConfiguracoesSistema {
