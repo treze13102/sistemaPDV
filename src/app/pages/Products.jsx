@@ -317,6 +317,9 @@ export function ProductForm({ id }) {
     if (parseMoney(v.price) <= 0) e.price = "Informe o preço de venda";
     const promo = v.promoPrice === "" || v.promoPrice == null ? null : parseMoney(v.promoPrice);
     if (promo != null && promo >= parseMoney(v.price)) e.promo = "O preço promocional precisa ser menor que o de venda";
+    // A validade fica no lote que entra: sem aumento de estoque não há onde gravá-la.
+    if (v.expiry && (Number(v.stock) || 0) <= (existing?.stock ?? 0))
+      e.expiry = existing ? "Aumente o estoque atual para registrar a validade das unidades que entram (ou use Estoque › Novo movimento)." : "Informe o estoque inicial para registrar a validade.";
     setErrors(e);
     if (Object.keys(e).length || busy) return;
     const p = { ...v, price: parseMoney(v.price), cost: parseMoney(v.cost), promoPrice: promo, stock: Number(v.stock) || 0, minStock: Number(v.minStock) || 0 };
@@ -483,10 +486,11 @@ export function ProductForm({ id }) {
               <Field label="Estoque atual" legend value={String(v.stock)} inputMode="decimal" onChange={(x) => set("stock", x.replace(/[^\d.,-]/g, "").replace(",", "."))} />
               <Field label="Estoque mínimo" legend value={String(v.minStock)} inputMode="numeric" onChange={(x) => set("minStock", x.replace(/\D/g, ""))} />
             </div>
+            <Field label="Validade das unidades que entram (opcional)" legend type="date" value={v.expiry || ""} onChange={(x) => set("expiry", x)} error={errors.expiry} />
             <p className="pform__note">
               {existing
-                ? "Alterar o estoque atual registra um ajuste de inventário com a diferença, no histórico de movimentos."
-                : "O estoque informado entra como estoque inicial do produto."}
+                ? "Alterar o estoque atual registra um ajuste de inventário com a diferença. Ao aumentar, a validade vale para as unidades acrescentadas e aparece no relatório de validade."
+                : "O estoque informado entra como estoque inicial do produto, com a validade informada."}
             </p>
             <h3 className="card__title card__title--sm">Histórico de movimentações</h3>
             {existing ? <MovementHistory productId={id}/> : <p className="pform__note">Salve o produto para consultar os movimentos.</p>}

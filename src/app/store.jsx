@@ -272,7 +272,7 @@ function Provider({ children }) {
     }
 
     /** O estoque é um razão: mudar o número no cadastro vira um ajuste de inventário. */
-    async function ajustarEstoque(produtoId, saldoAtual, saldoNovo, motivo) {
+    async function ajustarEstoque(produtoId, saldoAtual, saldoNovo, motivo, validade = null) {
       const delta = +(Number(saldoNovo) - Number(saldoAtual)).toFixed(3);
       if (!delta) return;
       ou(
@@ -283,6 +283,8 @@ function Provider({ children }) {
           localizacao: localPadrao(),
           usuario_id: await getUsuarioAtualId(),
           observacao: motivo,
+          // Só entradas carregam validade (o relatório de validade lê AJUSTE_INVENTARIO com data).
+          data_validade: delta > 0 && validade ? validade : null,
         }),
       );
     }
@@ -332,7 +334,7 @@ function Provider({ children }) {
         } else {
           id = ou(await supabase.from("produtos").insert(payload).select("id").single()).id;
         }
-        await ajustarEstoque(id, existing?.stock ?? 0, Number(v.stock) || 0, existing ? "Ajuste pelo cadastro do produto" : "Estoque inicial do cadastro");
+        await ajustarEstoque(id, existing?.stock ?? 0, Number(v.stock) || 0, existing ? "Ajuste pelo cadastro do produto" : "Estoque inicial do cadastro", v.expiry || null);
         await recarregar();
         return id;
       },
